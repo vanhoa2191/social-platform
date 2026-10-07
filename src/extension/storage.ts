@@ -1,11 +1,13 @@
 import type { AutomationSafetyState } from '../automation/model'
 import { defaultAiGatewaySettings, type AiGatewaySettings } from '../ai/contracts'
+import { defaultPilotSettings, normalizePilotSettings, type PilotSettings } from './pilot'
 
 const SETTINGS_KEY = 'autotool.settings'
 const SAFETY_KEY = 'autotool.safety'
 const ACTION_COUNT_KEY = 'autotool.sessionActionCount'
 const AI_SETTINGS_KEY = 'autotool.aiGatewaySettings'
 const AI_TOKEN_KEY = 'autotool.aiGatewayToken'
+const PILOT_SETTINGS_KEY = 'autotool.pilotSettings'
 
 export interface ExtensionSettings {
   reviewBeforeAction: boolean
@@ -47,11 +49,12 @@ export async function setEmergencyStop(emergencyStop: boolean): Promise<Automati
 }
 
 export async function ensureDefaultSettings(): Promise<void> {
-  const result = await chrome.storage.local.get([SETTINGS_KEY, SAFETY_KEY, AI_SETTINGS_KEY])
+  const result = await chrome.storage.local.get([SETTINGS_KEY, SAFETY_KEY, AI_SETTINGS_KEY, PILOT_SETTINGS_KEY])
   const changes: Record<string, unknown> = {}
   if (!result[SETTINGS_KEY]) changes[SETTINGS_KEY] = defaultSettings
   if (!result[SAFETY_KEY]) changes[SAFETY_KEY] = defaultSafetyState
   if (!result[AI_SETTINGS_KEY]) changes[AI_SETTINGS_KEY] = defaultAiGatewaySettings
+  if (!result[PILOT_SETTINGS_KEY]) changes[PILOT_SETTINGS_KEY] = defaultPilotSettings
   if (Object.keys(changes).length) await chrome.storage.local.set(changes)
 }
 
@@ -93,4 +96,26 @@ export async function setAiGatewayToken(token?: string): Promise<void> {
   } else {
     await chrome.storage.session.remove(AI_TOKEN_KEY)
   }
+}
+
+
+export async function getPilotSettings(): Promise<PilotSettings> {
+  const result = await chrome.storage.local.get(PILOT_SETTINGS_KEY)
+  return normalizePilotSettings(result[PILOT_SETTINGS_KEY] as Partial<PilotSettings> | undefined)
+}
+
+export async function savePilotSettings(settings: PilotSettings): Promise<PilotSettings> {
+  const current = await getPilotSettings()
+  const normalized = normalizePilotSettings(settings)
+
+  if (!current.telemetryOptIn && normalized.telemetryOptIn) {
+    normalized.telemetryOptInAt = Date.now()
+  } else if (!normalized.telemetryOptIn) {
+    normalized.telemetryOptInAt = undefined
+  } else if (!normalized.telemetryOptInAt) {
+    normalized.telemetryOptInAt = current.telemetryOptInAt ?? Date.now()
+  }
+
+  await chrome.storage.local.set({ [PILOT_SETTINGS_KEY]: normalized })
+  return normalized
 }

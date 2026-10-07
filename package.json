@@ -1,7 +1,7 @@
 {
   "name": "social-platform",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,7 @@
     "check": "npm run lint && npm test && npm run build",
     "preview": "vite preview",
     "build:gateway": "node scripts/build-gateway.mjs",
-    "package:extension": "node scripts/package-extension.mjs && node scripts/verify-release.mjs",
+    "package:extension": "node scripts/check-release-readiness.mjs && node scripts/package-extension.mjs && node scripts/verify-release.mjs",
     "release:extension": "npm run build && npm run package:extension"
   },
   "dependencies": {

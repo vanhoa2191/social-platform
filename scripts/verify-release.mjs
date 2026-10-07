@@ -36,5 +36,8 @@ const metadata = JSON.parse(metadataText)
 if (metadata.sha256 !== actualSha) throw new Error('Release metadata checksum mismatch')
 if (metadata.version !== manifest.version) throw new Error('Release metadata version mismatch')
 if (metadata.channel !== channel) throw new Error('Release metadata channel mismatch')
+if (zippedManifest.version_name !== `${manifest.version}-${channel}`) throw new Error('Release manifest version_name/channel mismatch')
+if (metadata.versionName !== zippedManifest.version_name) throw new Error('Release metadata versionName mismatch')
+if (metadata.pilotDefault !== true) throw new Error('Release metadata must declare pilotDefault=true')
 
 console.log('Release package verified:', baseName)

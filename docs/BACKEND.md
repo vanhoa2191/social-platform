@@ -1,28 +1,10 @@
-# Backend data layer — v0.6.0
+# Backend data layer — v0.8.0
 
 ## Design goal
 
-AutoTool remains **local-first**.
+AutoTool remains **local-first**. Browser execution state stays local: queue, locks, review candidates, account context, session limits and Emergency Stop.
 
-The Chrome Extension keeps browser execution state locally:
-
-- queue
-- locks
-- review candidates
-- session action limits
-- Emergency Stop
-- account context
-
-Supabase/PostgreSQL is used only for data that benefits from cloud persistence:
-
-- authentication
-- browser-instance registration
-- campaign definitions
-- AI profile definitions
-- schedule definitions
-- normalized analytics events
-
-The browser runtime must continue working when the backend is unavailable.
+Supabase/PostgreSQL is optional and stores data that benefits from cloud persistence: authentication, browser instances, campaign definitions, AI profiles, schedule definitions and explicitly opted-in analytics metadata.
 
 ## Security model
 
@@ -33,26 +15,18 @@ Client applications use:
 - authenticated user JWT
 - Row Level Security
 
-Never put a Supabase service-role / secret key in the Chrome Extension.
+Never put a Supabase service-role / secret key in the Chrome Extension. AI provider secrets remain in the separate AI Gateway.
 
-Provider API keys for OpenAI, Claude, DeepSeek or Gemini remain in the separate AI Gateway.
+When running as a Chrome Extension, login/sync requests the configured Supabase origin through Chrome optional host permissions from an explicit user action.
 
 ## Environment
-
-Copy:
-
-```text
-.env.example
-```
-
-to your local environment and configure:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-The app automatically stays in local-only mode if either value is missing.
+If either value is missing, the product stays in local-only mode.
 
 ## Schema
 
@@ -71,61 +45,44 @@ Tables:
 - `schedule_definitions`
 - `analytics_events`
 
-Every client-facing table has Row Level Security enabled.
+Every client-facing table has RLS enabled.
 
 ## Browser instance registration
 
-Each extension installation creates a stable random `device_key`.
-
-After authentication, sync performs an upsert into:
-
-```text
-browser_instances
-```
-
-The cloud record stores:
-
-- device key
-- display name
-- extension version
-- last-seen timestamp
-- small non-sensitive environment metadata
+Each installation uses a stable random `device_key`. Cloud metadata is intentionally minimal and no longer uploads the browser user-agent or language.
 
 ## Schedule sync
 
-Schedule sync uses `local_schedule_id` and a local `updatedAt` timestamp as a revision.
+Schedule sync compares local and remote revisions before writing.
 
-Current conflict policy:
+- local >= remote → local can be pushed
+- remote > local → conflict
+- conflict requires an explicit choice in the UI
+- cloud never silently overwrites local
+- local never silently overwrites newer cloud state
 
-1. read remote revisions first;
-2. if local revision >= remote revision, push local;
-3. if remote revision > local revision, do not overwrite it;
-4. report the conflict in the UI.
+## Analytics telemetry
 
-Operational execution still uses the local schedule. Phase 8 can add an explicit conflict-resolution UI before importing remote changes.
+Telemetry is **off by default**.
 
-## Analytics event sync
+When a user opts in, only normalized metadata is uploaded:
 
-The extension reads normalized runtime events and sends only events newer than a local watermark.
+- local event id
+- event category
+- event level
+- timestamp
+- telemetry schema version
 
-Each row includes a stable `local_event_id`.
+Post content, generated comments, event messages and event detail fields are excluded.
 
-The database has a unique constraint on:
-
-```text
-(user_id, browser_instance_id, local_event_id)
-```
-
-so retrying an already-sent event is idempotent.
+A consent timestamp is stored locally. Events created before the current consent window are excluded even if the user later enables telemetry.
 
 ## Authentication
 
-The Settings screen supports Supabase email magic-link authentication when the backend is configured.
-
-For an unpacked Chrome Extension, the final extension URL must be added to the Supabase Auth redirect allowlist before magic-link redirect can complete.
+The Settings screen supports Supabase email magic-link authentication. The extension callback URL must be present in the Supabase Auth redirect allowlist.
 
 ## Current deployment state
 
-The repository includes the full migration and client integration, but no Supabase project is automatically created.
+No Supabase project is currently exposed by the connected account. The migration is ready but has not been applied to a live development project.
 
-Creating a new project may have billing implications, so project creation is intentionally not performed by the build workflow without explicit user confirmation.
+Project creation is not performed automatically because it can have billing/resource implications.

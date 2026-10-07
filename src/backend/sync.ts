@@ -1,9 +1,11 @@
 import type { Session } from '@supabase/supabase-js'
-import { applyRemoteSchedule, listRuntimeEvents, listSchedules, touchSchedule } from '../extension/client'
+import { applyRemoteSchedule, getPilotSettings, listRuntimeEvents, listSchedules, touchSchedule } from '../extension/client'
 import { getSupabaseClient } from './client'
 import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
+import type { RuntimeEvent } from '../runtime/types'
 import { resolveScheduleSync } from './syncPolicy'
+import { telemetryConsentCutoff, toTelemetryEventRow } from './telemetry'
 
 async function requireSession(): Promise<{ client: NonNullable<ReturnType<typeof getSupabaseClient>>; session: Session }> {
   const client = getSupabaseClient()
@@ -23,8 +25,7 @@ export async function registerBrowserInstance(extensionVersion: string): Promise
     extension_version: extensionVersion,
     last_seen_at: new Date().toISOString(),
     metadata: {
-      userAgent: navigator.userAgent.slice(0, 240),
-      language: navigator.language,
+      runtime: typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id) ? 'extension' : 'web-preview',
     },
   }
 
@@ -48,6 +49,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
       remoteSchedules: 0,
       conflicts: 0,
       conflictScheduleIds: [],
+      telemetryEnabled: false,
       syncedAt: Date.now(),
     }
   }
@@ -94,32 +96,28 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     if (error) throw error
   }
 
-  const watermark = await getEventWatermark()
-  const eventResult = await listRuntimeEvents(500)
-  if (!eventResult.ok) throw new Error(eventResult.error)
+  const pilotResult = await getPilotSettings()
+  const telemetryEnabled = pilotResult.ok && pilotResult.data.telemetryOptIn
+  let unsyncedEvents: RuntimeEvent[] = []
 
-  const unsyncedEvents = eventResult.data
-    .filter((event) => event.createdAt > watermark)
-    .sort((a, b) => a.createdAt - b.createdAt)
+  if (telemetryEnabled) {
+    const watermark = await getEventWatermark()
+    const consentCutoff = telemetryConsentCutoff(watermark, pilotResult.data.telemetryOptInAt)
+    const eventResult = await listRuntimeEvents(500)
+    if (!eventResult.ok) throw new Error(eventResult.error)
 
-  if (unsyncedEvents.length) {
-    const { error } = await client.from('analytics_events').upsert(
-      unsyncedEvents.map((event) => ({
-        browser_instance_id: browserInstanceId,
-        local_event_id: event.id,
-        event_type: event.category.toLowerCase(),
-        category: event.category,
-        level: event.level,
-        payload: {
-          message: event.message,
-          detail: event.detail,
-        },
-        occurred_at: new Date(event.createdAt).toISOString(),
-      })),
-      { onConflict: 'user_id,browser_instance_id,local_event_id', ignoreDuplicates: true },
-    )
-    if (error) throw error
-    await setEventWatermark(unsyncedEvents[unsyncedEvents.length - 1].createdAt)
+    unsyncedEvents = eventResult.data
+      .filter((event) => event.createdAt > consentCutoff)
+      .sort((a, b) => a.createdAt - b.createdAt)
+
+    if (unsyncedEvents.length) {
+      const { error } = await client.from('analytics_events').upsert(
+        unsyncedEvents.map((event) => toTelemetryEventRow(event, browserInstanceId)),
+        { onConflict: 'user_id,browser_instance_id,local_event_id', ignoreDuplicates: true },
+      )
+      if (error) throw error
+      await setEventWatermark(unsyncedEvents[unsyncedEvents.length - 1].createdAt)
+    }
   }
 
   return {
@@ -130,6 +128,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     remoteSchedules: remoteSchedules?.length ?? 0,
     conflicts,
     conflictScheduleIds: syncDecision.conflicts,
+    telemetryEnabled,
     syncedAt: Date.now(),
   }
 }

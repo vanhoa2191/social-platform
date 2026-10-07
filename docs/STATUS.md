@@ -58,45 +58,63 @@
 - schedule sync
 - analytics sync
 
-### Phase 8 — Testing & release hardening — DONE IN REPOSITORY
+### Phase 8 — Testing & release hardening
 - Facebook fixture integration tests
-- approved composer preparation fixture test
-- IndexedDB v3 → v4 upgrade test with data preservation
-- runtime DB schema diagnostics
-- schedule sync policy unit tests
-- explicit cloud/local schedule conflict-resolution UI
-- versioned ZIP packaging
-- SHA-256 release checksum
-- release metadata JSON
-- package verification
-- GitHub Actions CI artifact packaging
-- tag-based GitHub Release workflow
+- IndexedDB migration/data-preservation tests
+- release ZIP/checksum/metadata
+- CI artifacts
+- tag-based GitHub Release
+- explicit sync conflict resolution
+
+### Phase 9 — Pilot & production readiness — DONE IN REPOSITORY
+- pilot mode enabled by default
+- configurable pilot caps for posts/run and actions/session
+- effective pilot limits enforced by runtime
+- Pilot Readiness UI
+- runtime DB/account/adapter/safety readiness checks
+- release-channel diagnostics
+- telemetry explicitly opt-in and off by default
+- telemetry consent timestamp prevents pre-consent events from being uploaded later
+- telemetry payload excludes post/comment/runtime message/detail text
+- Supabase host permission requested only from user-triggered actions
+- backend bundle lazy-loaded to reduce startup payload
+- beta/stable release gate
+- stable tag must match manifest version
+- stable release requires explicit approval flag
+- GitHub production environment wired into stable release workflow
+- package manifest stamped with beta/stable channel
 
 ## Current product version
 
-0.7.0
+0.8.0
 
 ## Validation status
 
-- lint: pass
-- automated tests: 28+ and expanding
+- lint: pass with 0 warnings / 0 errors
+- automated tests: 33/33 passed
 - TypeScript: pass
-- dashboard build: pass
+- dashboard production build: pass
+- initial application chunk reduced through Backend lazy loading
 - Chrome Extension build verification: pass
 - AI Gateway bundle: pass
-- release package verification: pass when package command is run
+- beta package verification: pass
+- stable release gate: rejects unapproved release
+- stable package verification: pass with approval + matching tag
+- dev server: HTTP 200
 
 ## External deployment note
 
-No live Supabase project is available through the connected Supabase account in this session, so the SQL migration has not been applied to a real development project.
+The connected Supabase account currently exposes **no project**. The SQL migration therefore remains prepared but has not been applied to a live development database.
+
+No Supabase project is created automatically because project creation can carry billing/resource implications.
 
 ## Next
 
-### Phase 9 — Pilot & production readiness
-1. Connect/create a Supabase development project and apply the migration.
-2. Run RLS/security advisors against the live schema.
-3. Pilot the unpacked extension on real Facebook layouts.
-4. Capture adapter compatibility fixtures from approved test pages.
-5. Add opt-in error telemetry.
-6. Establish beta → stable release promotion rules.
-7. Run a small controlled user pilot before any broader rollout.
+### Phase 10 — Real environment pilot
+1. Select or create a Supabase development project.
+2. Apply migrations and run Supabase security/performance advisors.
+3. Configure Auth redirect URL for the unpacked extension.
+4. Pilot the extension on approved test Facebook accounts/layouts.
+5. Record adapter compatibility findings without collecting private post/comment content.
+6. Require a clean pilot checklist before stable promotion.
+7. Merge the stacked implementation branches after review.

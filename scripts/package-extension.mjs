@@ -6,7 +6,8 @@ import { basename, resolve } from 'node:path'
 const require = createRequire(import.meta.url)
 const AdmZip = require('adm-zip')
 
-const manifest = JSON.parse(await readFile(resolve('dist/manifest.json'), 'utf8'))
+const manifestPath = resolve('dist/manifest.json')
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
 const channel = (process.env.RELEASE_CHANNEL || 'beta').replace(/[^a-z0-9._-]/gi, '-')
 const releaseDir = resolve('release')
 const baseName = `autotool-v${manifest.version}-${channel}`
@@ -15,6 +16,9 @@ const shaPath = resolve(releaseDir, `${baseName}.sha256`)
 const metadataPath = resolve(releaseDir, `${baseName}.json`)
 
 await mkdir(releaseDir, { recursive: true })
+
+manifest.version_name = `${manifest.version}-${channel}`
+await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
 
 const zip = new AdmZip()
 zip.addLocalFolder(resolve('dist'))
@@ -35,6 +39,8 @@ await writeFile(metadataPath, JSON.stringify({
   archive: basename(zipPath),
   bytes: zipStat.size,
   sha256,
+  pilotDefault: true,
+  sourceCommit: process.env.GITHUB_SHA ?? null,
   createdAt: new Date().toISOString(),
 }, null, 2) + '\n')
 

@@ -2,6 +2,7 @@ import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
 import type { AccountContext, AdapterDiagnostic, PlatformContext, PlatformSurface } from '../platform/types'
 import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
+import type { PilotSettings } from './pilot'
 
 export type JobState =
   | 'PENDING'
@@ -74,6 +75,8 @@ export interface RuntimeStatus {
   recentErrors: number
   runtimeDbVersion: number
   runtimeDbSchemaVersion?: number
+  releaseChannel: 'beta' | 'stable' | 'dev'
+  pilot: PilotSettings
   sessionActions: number
   maxSessionActions: number
   safety: AutomationSafetyState
@@ -110,6 +113,8 @@ export type BackgroundRequest =
   | { type: 'AI_SETTINGS_GET' }
   | { type: 'AI_SETTINGS_SET'; settings: AiGatewaySettings; token?: string }
   | { type: 'AI_GATEWAY_TEST' }
+  | { type: 'PILOT_SETTINGS_GET' }
+  | { type: 'PILOT_SETTINGS_SET'; settings: PilotSettings }
   | { type: 'QUEUE_LIST' }
   | { type: 'QUEUE_ENQUEUE'; job: QueueJobInput }
   | { type: 'QUEUE_RUN_NOW' }

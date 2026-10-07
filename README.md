@@ -2,7 +2,7 @@
 
 Campaign-centric UI, Chrome Extension MV3 runtime, optional AI Gateway and optional Supabase backend.
 
-Current version: **0.7.0**
+Current version: **0.8.0-beta**
 
 ## Architecture
 
@@ -15,6 +15,7 @@ Chrome Extension
    |     +-- schedules
    |     +-- account context
    |     +-- IndexedDB schema v4
+   |     +-- pilot safeguards
    |
    +-- AI Gateway
    |     +-- OpenAI / DeepSeek / Claude / Gemini
@@ -25,7 +26,7 @@ Chrome Extension
          +-- AI profiles
          +-- schedule definitions
          +-- browser instances
-         +-- analytics events
+         +-- opt-in analytics metadata
 ```
 
 The extension remains operational in **local-only mode** without Supabase.
@@ -38,10 +39,20 @@ The extension remains operational in **local-only mode** without Supabase.
 - Final social-platform submission remains manual.
 - Account-context mismatches block execution.
 - Emergency Stop, session limits and resource locks remain enforced.
+- Pilot mode is enabled by default with lower workload caps.
+
+## Telemetry
+
+Telemetry is **off by default**.
+
+When explicitly enabled, the backend receives only normalized event metadata such as category, level, event id and timestamp. Post content, generated comments, runtime event messages and diagnostic detail text are excluded.
+
+Events created before telemetry consent are not uploaded later after opt-in.
 
 ## Security
 
 - Supabase frontend access uses a publishable key + authenticated JWT + RLS.
+- The extension asks for the configured Supabase host permission from a user-triggered login/sync action.
 - Never expose a Supabase service-role/secret key in the extension.
 - AI provider API keys stay server-side in the AI Gateway.
 
@@ -66,21 +77,30 @@ npm run build
 
 Load `dist/` from `chrome://extensions` using **Load unpacked**.
 
-## Package a release
-
-After building:
+## Package beta
 
 ```bash
+RELEASE_CHANNEL=beta npm run package:extension
+```
+
+## Stable release gate
+
+Stable packaging requires both explicit approval and a tag that matches the manifest version:
+
+```bash
+RELEASE_CHANNEL=stable \
+RELEASE_APPROVED=1 \
+RELEASE_TAG=v0.8.0 \
 npm run package:extension
 ```
 
-For a stable package:
+The GitHub tag workflow uses the `production` environment. Configure required reviewers on that environment before production use.
 
-```bash
-RELEASE_CHANNEL=stable npm run release:extension
-```
+Artifacts include:
 
-Artifacts are written to `release/` and include a ZIP, SHA-256 checksum and metadata JSON.
+- ZIP
+- SHA-256 checksum
+- release metadata JSON
 
 ## Supabase setup
 
@@ -89,7 +109,9 @@ Artifacts are written to `release/` and include a ZIP, SHA-256 checksum and meta
 3. Copy `.env.example` and configure:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_PUBLISHABLE_KEY`
-4. Add the extension callback URL to the Supabase Auth redirect allowlist when using magic links.
+4. Add the extension callback URL to the Supabase Auth redirect allowlist.
+
+No live project is currently attached through the connected Supabase account.
 
 ## Documentation
 
@@ -102,3 +124,4 @@ Artifacts are written to `release/` and include a ZIP, SHA-256 checksum and meta
 - `docs/PLATFORM_ADAPTERS.md`
 - `docs/BACKEND.md`
 - `docs/RELEASE.md`
+- `docs/PILOT.md`

@@ -13,8 +13,9 @@ import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, sc
 import { computeBackoffMs } from '../runtime/retry'
 import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
-import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken } from './storage'
+import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken, getPilotSettings, savePilotSettings } from './storage'
 import { getRuntimeDbInfo } from './runtimeDb'
+import { effectiveActionLimit, effectivePostLimit, releaseChannelFromVersionName } from './pilot'
 import type {
   BackgroundRequest,
   ContentRequest,
@@ -121,8 +122,9 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
   const runtimeContext = await getFacebookRuntimeContext()
   const activeTab = runtimeContext?.tab
   const candidates = await listCandidates(['READY_FOR_REVIEW', 'APPROVED', 'PREPARING'])
-  const [settings, sessionActions, schedules, events, dbInfo] = await Promise.all([
+  const [settings, pilot, sessionActions, schedules, events, dbInfo] = await Promise.all([
     getSettings(),
+    getPilotSettings(),
     getSessionActionCount(),
     listSchedules(),
     listRuntimeEvents(100),
@@ -147,8 +149,10 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
     recentErrors: events.filter((event) => event.level === 'ERROR').length,
     runtimeDbVersion: dbInfo.version,
     runtimeDbSchemaVersion: dbInfo.schemaVersion,
+    releaseChannel: releaseChannelFromVersionName(chrome.runtime.getManifest().version_name),
+    pilot,
     sessionActions,
-    maxSessionActions: settings.maxActionsPerSession,
+    maxSessionActions: effectiveActionLimit(settings.maxActionsPerSession, pilot),
     safety: await getSafetyState(),
   }
 }
@@ -177,7 +181,8 @@ async function createReviewCandidates(
   expectedAccountContextKey?: string,
 ): Promise<ReviewCandidate[]> {
   await ensureAutomationAllowed()
-  const scan = await scanActiveTab(limit, expectedAccountContextKey)
+  const pilot = await getPilotSettings()
+  const scan = await scanActiveTab(effectivePostLimit(limit, pilot), expectedAccountContextKey)
   if (!scan.ok) throw new Error(scan.error)
 
   const created: ReviewCandidate[] = []
@@ -267,10 +272,11 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
 
   try {
     await ensureAutomationAllowed()
-    const settings = await getSettings()
+    const [settings, pilot] = await Promise.all([getSettings(), getPilotSettings()])
     const currentActionCount = await getSessionActionCount()
-    if (currentActionCount >= settings.maxActionsPerSession) {
-      throw new AutomationError('INVALID_STATE', `Đã đạt giới hạn ${settings.maxActionsPerSession} thao tác trong phiên này.`)
+    const actionLimit = effectiveActionLimit(settings.maxActionsPerSession, pilot)
+    if (currentActionCount >= actionLimit) {
+      throw new AutomationError('INVALID_STATE', `Đã đạt giới hạn ${actionLimit} thao tác trong phiên này.`)
     }
 
     const runtimeContext = await getFacebookRuntimeContext(expectedAccountContextKey)
@@ -541,6 +547,16 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
       if (message.type === 'AI_GATEWAY_TEST') {
         const response: ExtensionResponse<AiHealthResponse> = { ok: true, data: await testGatewayConnection() }
         sendResponse(response)
+        return
+      }
+      if (message.type === 'PILOT_SETTINGS_GET') {
+        sendResponse({ ok: true, data: await getPilotSettings() })
+        return
+      }
+      if (message.type === 'PILOT_SETTINGS_SET') {
+        const settings = await savePilotSettings(message.settings)
+        await logRuntimeEvent('INFO', 'SYSTEM', `Pilot mode ${settings.enabled ? 'đã bật' : 'đã tắt'}. Telemetry ${settings.telemetryOptIn ? 'opt-in' : 'tắt'}.`)
+        sendResponse({ ok: true, data: settings })
         return
       }
       if (message.type === 'QUEUE_LIST') {

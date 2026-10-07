@@ -4,6 +4,7 @@ import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../
 import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
+import type { PilotSettings } from './pilot'
 
 function runtimeAvailable(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id)
@@ -22,6 +23,20 @@ async function send<T>(message: unknown): Promise<ExtensionResponse<T>> {
 
 export function isExtensionRuntime(): boolean {
   return runtimeAvailable()
+}
+
+export async function requestExternalOriginPermission(url: string): Promise<ExtensionResponse<{ granted: boolean }>> {
+  if (!runtimeAvailable()) return { ok: false, error: 'Chỉ có thể cấp quyền khi đang chạy Chrome Extension.' }
+  try {
+    const parsed = new URL(url)
+    const origin = `${parsed.origin}/*`
+    const already = await chrome.permissions.contains({ origins: [origin] })
+    if (already) return { ok: true, data: { granted: true } }
+    const granted = await chrome.permissions.request({ origins: [origin] })
+    return { ok: true, data: { granted } }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Không thể xin quyền truy cập host.' }
+  }
 }
 
 export async function requestGatewayOriginPermission(url: string): Promise<ExtensionResponse<{ granted: boolean }>> {
@@ -148,4 +163,13 @@ export function applyRemoteSchedule(
   revision: number,
 ): Promise<ExtensionResponse<ReviewSchedule>> {
   return send<ReviewSchedule>({ type: 'SCHEDULE_APPLY_REMOTE', schedule, revision })
+}
+
+
+export function getPilotSettings(): Promise<ExtensionResponse<PilotSettings>> {
+  return send<PilotSettings>({ type: 'PILOT_SETTINGS_GET' })
+}
+
+export function savePilotSettings(settings: PilotSettings): Promise<ExtensionResponse<PilotSettings>> {
+  return send<PilotSettings>({ type: 'PILOT_SETTINGS_SET', settings })
 }

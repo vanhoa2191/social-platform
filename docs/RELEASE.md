@@ -1,53 +1,46 @@
-# Testing & release hardening — v0.7.0
+# Testing, pilot and release hardening — v0.8.0
 
 ## Automated validation
 
-`npm run check` now validates:
+`npm run check` validates:
 
 - lint
 - unit tests
-- Facebook adapter fixture integration tests
-- IndexedDB v3 → v4 migration tests
-- schedule sync conflict policy
+- Facebook adapter fixture integration
+- IndexedDB v3 → v4 migration/data preservation
+- schedule conflict policy
+- pilot safeguards
+- telemetry privacy helpers
 - TypeScript
 - dashboard production build
-- Chrome Extension runtime bundles
-- extension manifest verification
+- Chrome Extension bundles
+- extension manifest
 - AI Gateway bundle
 
-## Facebook fixture tests
+## Production bundle
 
-The adapter test suite uses a synthetic DOM to verify:
-
-- account-context detection
-- Feed/Group surface classification
-- article scanning
-- permalink extraction
-- adapter health degradation when account evidence is missing
-- approved-text insertion into a composer without submitting it
-
-These tests are not a guarantee against future Facebook DOM changes, but they provide a reproducible compatibility baseline.
-
-## IndexedDB upgrade
-
-Runtime DB version is now **4**.
-
-The migration adds a `meta` store containing schema metadata. Tests create a legacy v3 database, insert a job, upgrade it to v4 and verify that the job is preserved.
-
-Runtime diagnostics now show both:
-
-- IndexedDB database version
-- schema metadata version
+Supabase/backend code is lazy-loaded from the Settings screen. This keeps the initial dashboard chunk significantly smaller and avoids loading the backend client before it is needed.
 
 ## Release packaging
 
-After a successful build:
+Beta:
 
 ```bash
+RELEASE_CHANNEL=beta npm run package:extension
+```
+
+Stable packaging is gated:
+
+```bash
+RELEASE_CHANNEL=stable \
+RELEASE_APPROVED=1 \
+RELEASE_TAG=v0.8.0 \
 npm run package:extension
 ```
 
-creates:
+Stable packaging is rejected unless the tag exactly matches `v<manifest version>`.
+
+Each package creates:
 
 ```text
 release/autotool-v<version>-<channel>.zip
@@ -55,44 +48,22 @@ release/autotool-v<version>-<channel>.sha256
 release/autotool-v<version>-<channel>.json
 ```
 
-Default channel is `beta`.
+The packaged manifest receives `version_name=<version>-<channel>`.
 
-Use:
+The verifier checks the checksum, required extension files, version, channel and release metadata.
 
-```bash
-RELEASE_CHANNEL=stable npm run release:extension
-```
+## GitHub Actions
 
-for a stable package.
+PRs and feature/main pushes run CI and upload a beta artifact.
 
-The verifier checks:
+Tags matching `v*` run the stable workflow through the GitHub `production` environment. Configure required environment reviewers before production use.
 
-- SHA-256 checksum
-- required files in the ZIP
-- manifest version
-- release metadata consistency
+## Pilot safeguards
 
-## CI
+Pilot mode defaults to enabled with low-volume limits. The Settings screen exposes a readiness checklist for runtime DB, Facebook account context, adapter health, safety controls, pilot limits, telemetry consent and release channel.
 
-GitHub Actions now:
-
-- runs validation on pull requests and feature/main pushes
-- packages a beta extension artifact in CI
-- uploads ZIP/checksum/metadata as a workflow artifact
-
-Tag pushes matching `v*` run the Release workflow and publish the packaged extension files to a GitHub Release.
-
-## Sync conflict resolution
-
-The Backend & Sync screen now reports exact schedule conflicts rather than only a count.
-
-For each conflict, the user explicitly chooses:
-
-- **Dùng bản cloud** — replace the local schedule with the newer cloud definition
-- **Giữ bản local** — bump the local revision and sync it back
-
-The system never silently overwrites a newer schedule.
+Telemetry remains opt-in and privacy-minimized.
 
 ## Remaining external validation
 
-A live Supabase migration integration test is still pending because no Supabase project is currently connected to the account available in this session. The migration and RLS schema remain prepared in the repository.
+Live Supabase migration and RLS/security-advisor validation require a development Supabase project. The connected account currently exposes none.

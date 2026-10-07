@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { backendConfigured } from '../backend/config'
+import { backendConfigured, getBackendConfig } from '../backend/config'
 import { getSupabaseClient } from '../backend/client'
 import {
   getCurrentUserEmail,
@@ -9,7 +9,7 @@ import {
   signOutBackend,
   syncRuntimeData,
 } from '../backend/sync'
-import { getRuntimeStatus, isExtensionRuntime } from '../extension/client'
+import { getRuntimeStatus, isExtensionRuntime, requestExternalOriginPermission } from '../extension/client'
 import type { SyncSummary } from '../backend/types'
 
 export default function BackendPanel() {
@@ -58,10 +58,20 @@ export default function BackendPanel() {
     }
   }, [configured, extensionMode])
 
+  async function ensureBackendPermission(): Promise<void> {
+    if (!extensionMode) return
+    const config = getBackendConfig()
+    if (!config) throw new Error('Supabase backend chưa được cấu hình.')
+    const permission = await requestExternalOriginPermission(config.url)
+    if (!permission.ok) throw new Error(permission.error)
+    if (!permission.data.granted) throw new Error('Bạn chưa cấp quyền truy cập Supabase host cho Extension.')
+  }
+
   async function magicLink() {
     setStatus('loading')
     setMessage('')
     try {
+      await ensureBackendPermission()
       await sendMagicLink(email.trim())
       setMessage('Đã gửi magic link. Mở email trên cùng trình duyệt để hoàn tất đăng nhập.')
       setStatus('ready')
@@ -75,6 +85,7 @@ export default function BackendPanel() {
     setStatus('loading')
     setMessage('')
     try {
+      await ensureBackendPermission()
       const result = await syncRuntimeData(version)
       setSync(result)
       setMessage(
@@ -93,6 +104,7 @@ export default function BackendPanel() {
     setStatus('loading')
     setMessage('')
     try {
+      await ensureBackendPermission()
       const result = choice === 'local'
         ? await resolveScheduleConflictKeepLocal(scheduleId, version)
         : await resolveScheduleConflictUseCloud(scheduleId, version)
@@ -173,7 +185,7 @@ export default function BackendPanel() {
       <div className="backend-architecture">
         <div><strong>Local runtime</strong><span>Queue, locks, review candidates, session limits.</span></div>
         <div><strong>Cloud config</strong><span>Campaigns, AI profiles, schedule definitions.</span></div>
-        <div><strong>Analytics</strong><span>Runtime events được đẩy lên theo watermark.</span></div>
+        <div><strong>Analytics</strong><span>Chỉ đẩy metadata event sau khi người dùng opt-in telemetry.</span></div>
         <div><strong>Security</strong><span>Publishable key + Auth JWT + RLS; không dùng service role trong extension.</span></div>
       </div>
 
@@ -185,6 +197,7 @@ export default function BackendPanel() {
             <span>Events: <b>{sync.eventsPushed}</b></span>
             <span>Remote schedules: <b>{sync.remoteSchedules}</b></span>
             <span>Conflicts: <b>{sync.conflicts}</b></span>
+          <span>Telemetry: <b>{sync.telemetryEnabled ? 'opt-in' : 'off'}</b></span>
           </div>
 
           {sync.conflictScheduleIds.length > 0 && (

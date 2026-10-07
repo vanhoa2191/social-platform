@@ -7,27 +7,35 @@
 ## Phase 5 — Queue & Scheduler hardening — DONE
 ## Phase 6 — Platform adapters & account context — DONE
 ## Phase 7 — Backend data layer — DONE IN REPOSITORY
-
 ## Phase 8 — Testing & release hardening — DONE IN REPOSITORY
-- fixture-based Facebook adapter tests
-- composer preparation integration fixture
-- IndexedDB migration/data-preservation tests
-- runtime DB version diagnostics
-- schedule sync conflict policy tests
-- explicit cloud/local conflict resolution
-- extension ZIP packaging
-- SHA-256/checksum metadata
-- release package verification
-- PR/branch CI artifacts
-- tag-based GitHub Release workflow
 
-Live Supabase migration validation remains blocked only by the lack of an available connected Supabase project.
+## Phase 9 — Pilot & production readiness — DONE IN REPOSITORY
 
-## Phase 9 — Pilot & production readiness — NEXT
-- development Supabase deployment
+Implemented:
+
+- pilot mode defaults to enabled
+- low-volume caps enforced by runtime
+- Pilot Readiness checklist
+- account/adapter/database/safety checks
+- release channel visible in runtime
+- telemetry opt-in with privacy-minimized payload
+- consent timestamp so pre-consent logs are never uploaded after later opt-in
+- Supabase host permission requested from explicit user actions
+- Backend/Supabase code split from the initial dashboard bundle
+- beta and stable package channels
+- stable promotion gate
+- GitHub production environment for stable releases
+
+## Phase 10 — Real environment pilot — NEXT
+
+Requires external environment/user decision:
+
+- a real Supabase development project
+- migration deployment
 - RLS/security advisor review
-- real-browser compatibility pilot
-- approved Facebook layout fixtures
-- optional error telemetry
-- beta/stable promotion policy
-- controlled pilot rollout
+- Auth redirect configuration
+- controlled testing on approved Facebook test accounts
+- beta pilot acceptance criteria
+- stable promotion after pilot review
+
+No Supabase project is created automatically.

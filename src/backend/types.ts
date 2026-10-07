@@ -31,5 +31,6 @@ export interface SyncSummary {
   remoteSchedules: number
   conflicts: number
   conflictScheduleIds: string[]
+  telemetryEnabled: boolean
   syncedAt: number
 }

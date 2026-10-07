@@ -71,8 +71,10 @@ export default function RuntimeCard() {
 
       <div className="runtime-grid">
         <div className="runtime-stat">
-          <span>Phiên bản</span>
-          <strong>{status?.version ?? (extensionMode ? 'Đang kết nối…' : 'preview')}</strong>
+          <span>Phiên bản / channel</span>
+          <strong>
+            {status ? `v${status.version} · ${status.releaseChannel}` : (extensionMode ? 'Đang kết nối…' : 'preview')}
+          </strong>
         </div>
         <div className="runtime-stat">
           <span>Tab hiện tại</span>
@@ -99,8 +101,10 @@ export default function RuntimeCard() {
           <strong>{status ? `${status.enabledSchedules} lịch · ${status.recentErrors} lỗi` : '—'}</strong>
         </div>
         <div className="runtime-stat">
-          <span>Runtime DB</span>
-          <strong>{status ? `v${status.runtimeDbVersion} · schema ${status.runtimeDbSchemaVersion ?? '—'}` : '—'}</strong>
+          <span>Runtime DB / Pilot</span>
+          <strong>
+            {status ? `DB v${status.runtimeDbVersion} · ${status.pilot.enabled ? 'Pilot ON' : 'Pilot OFF'}` : '—'}
+          </strong>
         </div>
         <div className="runtime-stat">
           <span>Giới hạn phiên</span>

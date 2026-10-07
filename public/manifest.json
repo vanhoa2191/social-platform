@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoTool v2 - Social Platform",
   "short_name": "AutoTool",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Campaign-centric social workflow control plane with local browser runtime.",
   "minimum_chrome_version": "120",
   "action": {
@@ -40,5 +40,6 @@
     "https://*/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
-  ]
+  ],
+  "version_name": "0.8.0-beta"
 }
