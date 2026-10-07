@@ -11,32 +11,30 @@
 ## Phase 5 — Queue & Scheduler hardening — DONE
 
 ## Phase 6 — Platform adapters & account context — DONE
-- platform adapter interface and registry
-- centralized Facebook selectors
-- surface-aware Facebook adapter
-- DOM compatibility diagnostics
-- account-context detection
-- schedule/account binding
-- per-account resource locks
-- account-aware Facebook tab selection
-- review candidate context metadata
-- context verification before approved composer preparation
-- runtime account/adapter status UI
 
-## Phase 7 — Backend data layer — NEXT
-- Supabase/PostgreSQL schema
-- authentication
+## Phase 7 — Backend data layer — DONE IN REPOSITORY
+- Supabase/PostgreSQL migration
+- RLS security model
+- publishable-key client
+- Auth session persistence
+- magic-link authentication
 - browser-instance registration
-- campaign persistence
-- AI profile/prompt persistence
-- schedule definition sync
-- analytics events
-- local-first conflict policy
+- campaigns repository
+- AI-profile repository
+- schedule-definition sync
+- revision conflict detection
+- analytics-event sync with idempotency
+- local-first fallback
+- backend status/sync UI
 
-## Phase 8 — Testing and release
-- browser integration tests
+The migration has not been deployed because there is currently no connected Supabase project.
+
+## Phase 8 — Testing and release — NEXT
 - fixture-based adapter tests
-- packaged extension
-- release channels
+- browser integration tests
+- Supabase migration integration test
+- extension packaging
+- release metadata
+- migration/upgrade verification
 - observability
-- migration strategy
+- conflict-resolution UI

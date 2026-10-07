@@ -1,48 +1,40 @@
 # Social Platform / AutoTool v2
 
-Campaign-centric UI, Chrome Extension MV3 runtime and optional server-side AI Gateway.
+Campaign-centric UI, Chrome Extension MV3 runtime, optional AI Gateway and optional Supabase backend.
 
-Current version: **0.5.0**
+Current version: **0.6.0**
 
-## Implemented
+## Architecture
 
-### Chrome runtime
-- Manifest V3
-- background service worker
-- typed runtime messaging
-- IndexedDB queue/review/schedule/event storage
-- durable job leases
-- per-account browser resource locks
-- retry/backoff
-- Emergency Stop
-- session action limits
+```text
+Chrome Extension
+   |
+   +-- Local runtime
+   |     +-- queue / locks
+   |     +-- review candidates
+   |     +-- schedules
+   |     +-- account context
+   |
+   +-- AI Gateway
+   |     +-- OpenAI / DeepSeek / Claude / Gemini
+   |
+   +-- Supabase Backend (optional)
+         +-- Auth
+         +-- campaigns
+         +-- AI profiles
+         +-- schedule definitions
+         +-- browser instances
+         +-- analytics events
+```
 
-### Facebook platform adapter
-- centralized DOM selectors
-- Feed / Group / Page / Post surface detection
-- visible article scanning
-- account-context detection
-- adapter compatibility diagnostics
-- account-aware tab selection
-- schedule binding to account context
+The extension remains operational in **local-only mode** without Supabase.
 
-### Controlled review workflow
-- scan visible Facebook content
-- create AI drafts
-- edit/regenerate/reject/approve drafts
-- preserve account/surface metadata on candidates
-- locate the matching account context before composer preparation
-- insert approved text
-- user manually clicks **Gửi**
+## Security
 
-### AI Gateway
-- local mock mode
-- Cloudflare Worker bundle
-- OpenAI-compatible / DeepSeek / Anthropic / Gemini adapters
-- server-side provider API keys
-- prompt versioning
-- structured JSON validation
-- usage/cost metadata
+- Supabase frontend access uses a publishable key plus authenticated JWT and RLS.
+- Never expose a Supabase service-role/secret key in the extension.
+- AI provider API keys remain server-side in the AI Gateway.
+- Final social-platform submission remains under explicit user control.
 
 ## Development
 
@@ -56,6 +48,18 @@ npm run dev
 ```bash
 npm run check
 ```
+
+## Supabase setup
+
+1. Create or select a Supabase project.
+2. Apply:
+   `supabase/migrations/20261007113000_initial_backend.sql`
+3. Copy `.env.example` and provide:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+4. Add your Chrome Extension callback URL to the Supabase Auth redirect allowlist if using magic links.
+
+No service-role key is needed by the extension.
 
 ## Build extension
 
@@ -74,5 +78,4 @@ Load `dist/` from `chrome://extensions` using **Load unpacked**.
 - `docs/AI_GATEWAY.md`
 - `docs/QUEUE_SCHEDULER.md`
 - `docs/PLATFORM_ADAPTERS.md`
-
-The product keeps final social-platform submission under explicit user control.
+- `docs/BACKEND.md`

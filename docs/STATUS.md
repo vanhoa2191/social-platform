@@ -42,34 +42,47 @@
 - runtime events
 - real scheduler/log UI
 
-### Phase 6 — Platform adapters & account context — DONE
-- platform adapter contract and registry
-- centralized Facebook selectors
-- `facebook-web-v1` adapter
-- Feed / Group / Page / Post surface classification
-- account-context detection from navigation/header evidence
-- stable account context keys
-- adapter diagnostics and health status
-- live Browser Context UI
-- fake account table removed
-- schedule binding to verified account context
-- per-account queue resource keys
-- scheduled tab lookup by expected account context
-- review candidate account/surface metadata
-- approved-comment preparation requires matching verified context
-- old unbound schedules are prevented from running until rebound
+### Phase 6 — Platform adapters & account context
+- platform adapter contract
+- Facebook adapter
+- account-context binding
+- adapter diagnostics
+- account-aware queue locks
+- account-aware review preparation
+
+### Phase 7 — Backend data layer — DONE IN REPOSITORY
+- Supabase JS client integration
+- local-only fallback when backend is not configured
+- email magic-link auth flow
+- extension-safe auth storage
+- browser-instance registration
+- PostgreSQL schema migration
+- Row Level Security policies
+- campaigns repository
+- AI profiles repository
+- schedule-definition sync
+- analytics-event sync
+- idempotent event upload
+- sync watermark
+- revision-aware schedule conflict detection
+- Backend & Sync settings UI
+- no service-role/secret key exposed in extension
 
 ## Current product version
 
-0.5.0
+0.6.0
+
+## Deployment note
+
+No Supabase project is currently attached through the connector, so the migration is prepared but not applied to a live project.
 
 ## Next
 
-### Phase 7 — Backend data layer
-1. Add authentication and browser-instance identity.
-2. Add Supabase/PostgreSQL persistence.
-3. Sync campaigns, AI profiles and schedule definitions.
-4. Keep browser-only session state local.
-5. Add analytics event aggregation.
-6. Add prompt/profile sharing without sharing provider API keys.
-7. Define local-first/offline behavior when backend is unavailable.
+### Phase 8 — Testing & release
+1. Add fixture-based Facebook adapter tests.
+2. Add browser integration tests.
+3. Add migration validation against a development Supabase project.
+4. Add packaged extension release build.
+5. Add upgrade/migration checks for IndexedDB.
+6. Add runtime observability and release channel metadata.
+7. Add explicit schedule conflict-resolution UI.
