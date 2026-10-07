@@ -1,22 +1,43 @@
 # Social Platform / AutoTool v2
 
-Campaign-centric UI and Chrome Extension MV3 runtime for a social workflow control plane.
+Campaign-centric UI and Chrome Extension MV3 runtime for a controlled social workflow system.
+
+Current version: **0.2.0**
 
 ## Implemented
 
-- Modern React + TypeScript dashboard
-- Campaign management and 5-step creation wizard
-- Accounts & profiles
+### Product UI
+- dashboard
+- campaign management and 5-step wizard
+- accounts & profiles
 - AI profiles and prompt UI
-- Content library
-- Scheduler, queue, audit logs and analytics
-- Chrome Extension Manifest V3
-- Background service worker
-- Read-only Facebook feed scanner content script
-- Typed runtime messaging
-- IndexedDB local queue
+- content library
+- scheduler
+- queue
+- audit logs
+- analytics
+- settings
+
+### Chrome runtime
+- Manifest V3
+- background service worker
+- Facebook content script
+- typed runtime messaging
+- IndexedDB queue and review candidates
 - chrome.storage settings
-- CI, lint, unit tests and verified production build
+- runtime status
+- Emergency Stop
+- session action limit
+
+### Automation MVP
+- scan visible Facebook posts
+- create structured local AI drafts
+- review / approve / reject / retry
+- prepare an approved comment in the Facebook composer
+- verify that the approved text was inserted
+- user manually clicks **Gửi**
+
+The MVP intentionally does **not** auto-submit comments.
 
 ## Development
 
@@ -39,12 +60,23 @@ This runs lint, unit tests, the web build, extension runtime bundling and manife
 npm run build
 ```
 
-Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `dist/`.
+Then:
 
-See:
+1. open `chrome://extensions`
+2. enable Developer mode
+3. choose **Load unpacked**
+4. select `dist/`
+5. click the AutoTool toolbar icon
+6. open Facebook in another tab
+7. use **Browser Runtime** to test scanning
+8. open **Hàng đợi & Duyệt AI**
+9. choose **Quét & tạo nháp**
+10. approve a draft and choose **Điền vào Facebook**
+11. review it in Facebook and manually submit
+
+## Documentation
 
 - `docs/PLAN.md`
 - `docs/STATUS.md`
 - `docs/EXTENSION.md`
-
-The current browser scanner is intentionally read-only. Automated execution should remain deterministic and gated by review, limits, cooldowns and audit logging.
+- `docs/AUTOMATION_MVP.md`

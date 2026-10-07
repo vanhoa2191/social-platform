@@ -1,61 +1,73 @@
 # AutoTool v2 implementation plan
 
-## Phase 1 — Product shell and UI
+## Phase 1 — Product shell and UI — DONE
 - Design system
 - Dashboard
 - Campaign list and 5-step wizard
 - Profiles, AI profiles, content library
 - Schedule, queue, logs, analytics, settings
 
-## Phase 2 — Chrome Extension MV3 core
+## Phase 2 — Chrome Extension MV3 core — DONE
 - Manifest V3
 - Background service worker
 - Content scripts
 - Typed messaging protocol
 - IndexedDB and chrome.storage
 - Tab lifecycle handling
+- CI and extension build verification
 
-## Phase 3 — Automation engine MVP
-- Deterministic state machine
-- Feed scanner adapter
-- Post parser
-- Human review queue
-- Action executor and verification
-- Pause, stop, emergency controls
+## Phase 3 — Automation engine MVP — DONE
+- Deterministic candidate state machine
+- Feed scanner integration
+- Post fingerprints and review candidates
+- AI provider abstraction with local mock provider
+- Review queue
+- Explicit approve / reject / retry
+- Approved text preparation in Facebook composer
+- Verification
+- Error taxonomy
+- Emergency Stop
+- session action limit
+- preparation lock
 
-## Phase 4 — AI gateway
-- Provider abstraction
-- Prompt registry and versioning
-- Structured JSON validation
-- Relevance classifier
-- Comment generation
-- Token and cost accounting
+## Phase 4 — AI gateway — NEXT
+- Cloud API endpoint
+- provider abstraction implementation
+- prompt registry/versioning
+- JSON schema validation
+- relevance classifier
+- production comment generation
+- model fallback
+- token/cost accounting
+- draft edit/regenerate UI
 
 ## Phase 5 — Queue and scheduler hardening
-- Local locks
-- Duplicate fingerprints
-- Retry and cooldown policy
-- Recurring schedules
-- Campaign chains
+- durable job locks
+- per-profile locks
+- retry backoff
+- cooldown rules
+- recurring schedules
+- campaign chains
+- failure notifications
 
 ## Phase 6 — Platform adapters
-- Feed
-- Group
-- Page
-- Composer
-- Comment
-- Identity context verification
+- stronger feed selectors
+- group adapter
+- page adapter
+- composer adapter revisions
+- identity context verification
+- DOM compatibility diagnostics
 
 ## Phase 7 — Backend
 - Auth
 - Supabase/PostgreSQL
-- Campaign sync
+- campaign sync
 - AI gateway endpoint
-- Analytics aggregation
+- analytics aggregation
 
 ## Phase 8 — Testing and release
-- Unit tests
-- UI tests
-- Browser integration tests
-- Extension packaging
-- CI
+- broader unit tests
+- browser integration tests
+- Chrome extension packaging
+- release channel
+- observability

@@ -1,3 +1,5 @@
+import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
+
 export type JobState =
   | 'PENDING'
   | 'PROCESSING'
@@ -55,12 +57,31 @@ export interface RuntimeStatus {
     supported: boolean
   }
   queuedJobs: number
+  reviewCandidates: number
+  sessionActions: number
+  maxSessionActions: number
+  safety: AutomationSafetyState
+}
+
+export interface PrepareCommentResult {
+  postId: string
+  prepared: boolean
+  composerText: string
 }
 
 export type BackgroundRequest =
   | { type: 'PING' }
   | { type: 'GET_RUNTIME_STATUS' }
   | { type: 'SCAN_ACTIVE_TAB'; limit?: number }
+  | { type: 'CREATE_REVIEW_CANDIDATES'; limit?: number }
+  | { type: 'REVIEW_LIST'; states?: CandidateState[] }
+  | { type: 'REVIEW_APPROVE'; candidateId: string }
+  | { type: 'REVIEW_REJECT'; candidateId: string }
+  | { type: 'REVIEW_PREPARE'; candidateId: string }
+  | { type: 'REVIEW_RETRY'; candidateId: string }
+  | { type: 'REVIEW_CLEAR' }
+  | { type: 'GET_SAFETY_STATE' }
+  | { type: 'SET_EMERGENCY_STOP'; enabled: boolean }
   | { type: 'QUEUE_LIST' }
   | { type: 'QUEUE_ENQUEUE'; job: QueueJobInput }
   | { type: 'QUEUE_CLEAR' }
@@ -69,6 +90,9 @@ export type ContentRequest =
   | { type: 'CONTENT_PING' }
   | { type: 'GET_PAGE_CONTEXT' }
   | { type: 'SCAN_FEED'; limit?: number }
+  | { type: 'PREPARE_COMMENT'; postId: string; comment: string }
+
+export type ReviewListResponse = ReviewCandidate[]
 
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }

@@ -1,45 +1,10 @@
 import type { QueueJob, QueueJobInput } from './types'
-
-const DB_NAME = 'autotool-runtime'
-const STORE_NAME = 'jobs'
-const DB_VERSION = 1
-
-function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'))
-  })
-}
-
-function transactionDone(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'))
-    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'))
-  })
-}
-
-async function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onupgradeneeded = () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        const store = database.createObjectStore(STORE_NAME, { keyPath: 'id' })
-        store.createIndex('dedupeKey', 'dedupeKey', { unique: true })
-        store.createIndex('scheduledAt', 'scheduledAt')
-        store.createIndex('state', 'state')
-      }
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('Unable to open queue database'))
-  })
-}
+import { JOBS_STORE, openRuntimeDb, requestToPromise, transactionDone } from './runtimeDb'
 
 export async function enqueueJob(input: QueueJobInput): Promise<QueueJob> {
-  const db = await openDb()
-  const transaction = db.transaction(STORE_NAME, 'readwrite')
-  const store = transaction.objectStore(STORE_NAME)
+  const db = await openRuntimeDb()
+  const transaction = db.transaction(JOBS_STORE, 'readwrite')
+  const store = transaction.objectStore(JOBS_STORE)
   const existing = await requestToPromise(store.index('dedupeKey').get(input.dedupeKey) as IDBRequest<QueueJob | undefined>)
   if (existing) {
     await transactionDone(transaction)
@@ -68,9 +33,9 @@ export async function enqueueJob(input: QueueJobInput): Promise<QueueJob> {
 }
 
 export async function listJobs(): Promise<QueueJob[]> {
-  const db = await openDb()
-  const transaction = db.transaction(STORE_NAME, 'readonly')
-  const store = transaction.objectStore(STORE_NAME)
+  const db = await openRuntimeDb()
+  const transaction = db.transaction(JOBS_STORE, 'readonly')
+  const store = transaction.objectStore(JOBS_STORE)
   const jobs = await requestToPromise(store.getAll() as IDBRequest<QueueJob[]>)
   await transactionDone(transaction)
   db.close()
@@ -78,18 +43,18 @@ export async function listJobs(): Promise<QueueJob[]> {
 }
 
 export async function countJobs(): Promise<number> {
-  const db = await openDb()
-  const transaction = db.transaction(STORE_NAME, 'readonly')
-  const count = await requestToPromise(transaction.objectStore(STORE_NAME).count())
+  const db = await openRuntimeDb()
+  const transaction = db.transaction(JOBS_STORE, 'readonly')
+  const count = await requestToPromise(transaction.objectStore(JOBS_STORE).count())
   await transactionDone(transaction)
   db.close()
   return count
 }
 
 export async function updateJob(id: string, patch: Partial<QueueJob>): Promise<QueueJob | undefined> {
-  const db = await openDb()
-  const transaction = db.transaction(STORE_NAME, 'readwrite')
-  const store = transaction.objectStore(STORE_NAME)
+  const db = await openRuntimeDb()
+  const transaction = db.transaction(JOBS_STORE, 'readwrite')
+  const store = transaction.objectStore(JOBS_STORE)
   const current = await requestToPromise(store.get(id) as IDBRequest<QueueJob | undefined>)
   if (!current) {
     await transactionDone(transaction)
@@ -104,9 +69,9 @@ export async function updateJob(id: string, patch: Partial<QueueJob>): Promise<Q
 }
 
 export async function clearQueue(): Promise<void> {
-  const db = await openDb()
-  const transaction = db.transaction(STORE_NAME, 'readwrite')
-  transaction.objectStore(STORE_NAME).clear()
+  const db = await openRuntimeDb()
+  const transaction = db.transaction(JOBS_STORE, 'readwrite')
+  transaction.objectStore(JOBS_STORE).clear()
   await transactionDone(transaction)
   db.close()
 }

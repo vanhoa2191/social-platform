@@ -61,7 +61,11 @@ export default function RuntimeCard() {
           <p>Kiểm tra kết nối Chrome Extension và quét thử tab Facebook hiện tại.</p>
         </div>
         <span className={extensionMode ? 'runtime-badge online' : 'runtime-badge preview'}>
-          {extensionMode ? '● Extension đang chạy' : '● Web preview'}
+          {extensionMode
+            ? status?.safety.emergencyStop
+              ? '■ Emergency Stop'
+              : '● Extension đang chạy'
+            : '● Web preview'}
         </span>
       </div>
 
@@ -81,8 +85,12 @@ export default function RuntimeCard() {
           </strong>
         </div>
         <div className="runtime-stat">
-          <span>Queue local</span>
-          <strong>{status?.queuedJobs ?? 0} job</strong>
+          <span>Queue / Review</span>
+          <strong>{status?.queuedJobs ?? 0} job · {status?.reviewCandidates ?? 0} review</strong>
+        </div>
+        <div className="runtime-stat">
+          <span>Giới hạn phiên</span>
+          <strong>{status ? `${status.sessionActions} / ${status.maxSessionActions}` : '—'}</strong>
         </div>
         <button className="primary runtime-action" disabled={!extensionMode || loading} onClick={() => void scan()}>
           {loading ? 'Đang quét…' : 'Quét thử tab Facebook'}

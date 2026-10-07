@@ -1,5 +1,5 @@
 import { fingerprint, isSupportedFacebookUrl, normalizeText } from '../core/helpers'
-import type { ContentRequest, ExtensionResponse, FeedPost, PageContext } from './types'
+import type { ContentRequest, ExtensionResponse, FeedPost, PageContext, PrepareCommentResult } from './types'
 
 function getPageContext(): PageContext {
   return {
@@ -25,6 +25,14 @@ function guessPermalink(article: Element): string | undefined {
   return match?.href
 }
 
+function postIdentity(node: Element): { id: string; text: string } {
+  const text = normalizeText((node as HTMLElement).innerText ?? node.textContent ?? '')
+  return {
+    text,
+    id: fingerprint([text.slice(0, 600), window.location.hostname]),
+  }
+}
+
 function scanFeed(limit = 20): FeedPost[] {
   const nodes = Array.from(document.querySelectorAll('[role="article"], article'))
   const seen = new Set<string>()
@@ -33,16 +41,13 @@ function scanFeed(limit = 20): FeedPost[] {
   for (const node of nodes) {
     if (posts.length >= Math.max(1, Math.min(limit, 100))) break
 
-    const text = normalizeText((node as HTMLElement).innerText ?? node.textContent ?? '')
-    if (text.length < 40) continue
-
-    const id = fingerprint([text.slice(0, 600), window.location.hostname])
-    if (seen.has(id)) continue
-    seen.add(id)
+    const identity = postIdentity(node)
+    if (identity.text.length < 40 || seen.has(identity.id)) continue
+    seen.add(identity.id)
 
     posts.push({
-      id,
-      text,
+      id: identity.id,
+      text: identity.text,
       author: guessAuthor(node),
       sourceUrl: window.location.href,
       permalink: guessPermalink(node),
@@ -53,35 +58,95 @@ function scanFeed(limit = 20): FeedPost[] {
   return posts
 }
 
+function findPostElement(postId: string): HTMLElement | undefined {
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>('[role="article"], article'))
+  return nodes.find((node) => postIdentity(node).id === postId)
+}
+
+function isCommentControl(element: Element): boolean {
+  const text = normalizeText([
+    element.textContent,
+    element.getAttribute('aria-label'),
+    element.getAttribute('title'),
+  ].filter(Boolean).join(' ')).toLowerCase()
+  return text.includes('bình luận') || text.includes('comment')
+}
+
+async function prepareComment(postId: string, comment: string): Promise<PrepareCommentResult> {
+  const article = findPostElement(postId)
+  if (!article) throw new Error('Không tìm thấy bài viết trong DOM hiện tại. Hãy cuộn lại bài rồi thử lại.')
+
+  article.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const commentControl = Array.from(article.querySelectorAll('button,[role="button"]')).find(isCommentControl) as HTMLElement | undefined
+  commentControl?.click()
+
+  await new Promise((resolve) => window.setTimeout(resolve, 250))
+
+  const localComposer = article.querySelector<HTMLElement>('[contenteditable="true"][role="textbox"], [contenteditable="true"]')
+  const nearbyComposer = localComposer ?? Array.from(document.querySelectorAll<HTMLElement>('[contenteditable="true"][role="textbox"]')).find((node) => {
+    const rect = node.getBoundingClientRect()
+    const articleRect = article.getBoundingClientRect()
+    return Math.abs(rect.top - articleRect.bottom) < 500
+  })
+
+  if (!nearbyComposer) throw new Error('Không tìm thấy ô bình luận. Giao diện Facebook có thể đã thay đổi.')
+
+  nearbyComposer.focus()
+  nearbyComposer.textContent = comment
+  nearbyComposer.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: 'insertText',
+    data: comment,
+  }))
+
+  await new Promise((resolve) => window.setTimeout(resolve, 80))
+  const composerText = normalizeText(nearbyComposer.innerText || nearbyComposer.textContent || '')
+  const prepared = composerText.includes(normalizeText(comment).slice(0, Math.min(24, comment.length)))
+
+  return { postId, prepared, composerText }
+}
+
 chrome.runtime.onMessage.addListener((message: ContentRequest, _sender, sendResponse) => {
-  try {
-    if (message.type === 'CONTENT_PING') {
-      const response: ExtensionResponse<{ ready: true }> = { ok: true, data: { ready: true } }
-      sendResponse(response)
-      return
-    }
-
-    if (message.type === 'GET_PAGE_CONTEXT') {
-      const response: ExtensionResponse<PageContext> = { ok: true, data: getPageContext() }
-      sendResponse(response)
-      return
-    }
-
-    if (message.type === 'SCAN_FEED') {
-      const context = getPageContext()
-      if (!context.isFacebook) {
-        const response: ExtensionResponse = { ok: false, error: 'Trang hiện tại không thuộc facebook.com' }
+  void (async () => {
+    try {
+      if (message.type === 'CONTENT_PING') {
+        const response: ExtensionResponse<{ ready: true }> = { ok: true, data: { ready: true } }
         sendResponse(response)
         return
       }
-      const response: ExtensionResponse<FeedPost[]> = { ok: true, data: scanFeed(message.limit) }
+
+      if (message.type === 'GET_PAGE_CONTEXT') {
+        const response: ExtensionResponse<PageContext> = { ok: true, data: getPageContext() }
+        sendResponse(response)
+        return
+      }
+
+      if (message.type === 'SCAN_FEED') {
+        const context = getPageContext()
+        if (!context.isFacebook) {
+          const response: ExtensionResponse = { ok: false, error: 'Trang hiện tại không thuộc facebook.com' }
+          sendResponse(response)
+          return
+        }
+        const response: ExtensionResponse<FeedPost[]> = { ok: true, data: scanFeed(message.limit) }
+        sendResponse(response)
+        return
+      }
+
+      if (message.type === 'PREPARE_COMMENT') {
+        const response: ExtensionResponse<PrepareCommentResult> = {
+          ok: true,
+          data: await prepareComment(message.postId, message.comment),
+        }
+        sendResponse(response)
+      }
+    } catch (error) {
+      const response: ExtensionResponse = {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Content script error',
+      }
       sendResponse(response)
     }
-  } catch (error) {
-    const response: ExtensionResponse = {
-      ok: false,
-      error: error instanceof Error ? error.message : 'Content script error',
-    }
-    sendResponse(response)
-  }
+  })()
+  return true
 })
