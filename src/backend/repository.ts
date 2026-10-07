@@ -1,4 +1,12 @@
-import { getSupabaseClient } from './client'
+import {
+  collection,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  setDoc,
+} from 'firebase/firestore'
+import { getFirebaseAuth, getFirestoreDb } from './client'
 
 export interface CampaignRecord {
   id?: string
@@ -7,69 +15,84 @@ export interface CampaignRecord {
   status: 'draft' | 'active' | 'paused' | 'archived'
   config: Record<string, unknown>
   revision?: number
+  updatedAt?: number
 }
 
 export interface AiProfileRecord {
   id?: string
   name: string
   persona?: string
-  prompt_version: string
+  promptVersion: string
   config: Record<string, unknown>
   revision?: number
+  updatedAt?: number
 }
 
-function requireClient() {
-  const client = getSupabaseClient()
-  if (!client) throw new Error('Supabase backend chưa được cấu hình.')
-  return client
+async function requireFirebaseContext() {
+  const [auth, db] = await Promise.all([getFirebaseAuth(), Promise.resolve(getFirestoreDb())])
+  if (!auth || !db) throw new Error('Firebase backend chưa được cấu hình.')
+  await auth.authStateReady()
+  const user = auth.currentUser
+  if (!user) throw new Error('Hãy đăng nhập Firebase trước.')
+  return { db, user }
 }
 
 export async function listRemoteCampaigns(): Promise<CampaignRecord[]> {
-  const client = requireClient()
-  const { data, error } = await client
-    .from('campaigns')
-    .select('id,name,type,status,config,revision')
-    .order('updated_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as CampaignRecord[]
+  const { db, user } = await requireFirebaseContext()
+  const snapshot = await getDocs(query(
+    collection(db, 'users', user.uid, 'campaigns'),
+    orderBy('updatedAt', 'desc'),
+  ))
+
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    ...(item.data() as Omit<CampaignRecord, 'id'>),
+  }))
 }
 
 export async function upsertRemoteCampaign(record: CampaignRecord): Promise<CampaignRecord> {
-  const client = requireClient()
-  const payload = {
+  const { db, user } = await requireFirebaseContext()
+  const ref = record.id
+    ? doc(db, 'users', user.uid, 'campaigns', record.id)
+    : doc(collection(db, 'users', user.uid, 'campaigns'))
+
+  const payload: CampaignRecord = {
     ...record,
+    id: ref.id,
     revision: Math.max(1, Number(record.revision ?? 0) + 1),
+    updatedAt: Date.now(),
   }
-  const { data, error } = await client
-    .from('campaigns')
-    .upsert(payload)
-    .select('id,name,type,status,config,revision')
-    .single()
-  if (error) throw error
-  return data as CampaignRecord
+
+  await setDoc(ref, payload, { merge: true })
+  return payload
 }
 
 export async function listRemoteAiProfiles(): Promise<AiProfileRecord[]> {
-  const client = requireClient()
-  const { data, error } = await client
-    .from('ai_profiles')
-    .select('id,name,persona,prompt_version,config,revision')
-    .order('updated_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as AiProfileRecord[]
+  const { db, user } = await requireFirebaseContext()
+  const snapshot = await getDocs(query(
+    collection(db, 'users', user.uid, 'aiProfiles'),
+    orderBy('updatedAt', 'desc'),
+  ))
+
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    ...(item.data() as Omit<AiProfileRecord, 'id'>),
+  }))
 }
 
 export async function upsertRemoteAiProfile(record: AiProfileRecord): Promise<AiProfileRecord> {
-  const client = requireClient()
-  const payload = {
+  const { db, user } = await requireFirebaseContext()
+  const ref = record.id
+    ? doc(db, 'users', user.uid, 'aiProfiles', record.id)
+    : doc(collection(db, 'users', user.uid, 'aiProfiles'))
+
+  const payload: AiProfileRecord = {
     ...record,
+    id: ref.id,
     revision: Math.max(1, Number(record.revision ?? 0) + 1),
+    updatedAt: Date.now(),
   }
-  const { data, error } = await client
-    .from('ai_profiles')
-    .upsert(payload)
-    .select('id,name,persona,prompt_version,config,revision')
-    .single()
-  if (error) throw error
-  return data as AiProfileRecord
+
+  await setDoc(ref, payload, { merge: true })
+  return payload
 }

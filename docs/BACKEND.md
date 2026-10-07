@@ -1,88 +1,150 @@
-# Backend data layer — v0.8.0
+# Firebase backend — v0.9.0
 
-## Design goal
+## Architecture
 
-AutoTool remains **local-first**. Browser execution state stays local: queue, locks, review candidates, account context, session limits and Emergency Stop.
+AutoTool remains **local-first**.
 
-Supabase/PostgreSQL is optional and stores data that benefits from cloud persistence: authentication, browser instances, campaign definitions, AI profiles, schedule definitions and explicitly opted-in analytics metadata.
+Local Chrome runtime keeps:
+- queue
+- locks
+- review candidates
+- session limits
+- Emergency Stop
+- account context
+- execution state
 
-## Security model
+Firebase is used only for cloud data:
+- Firebase Authentication
+- browser instance registration
+- campaigns
+- AI profiles
+- schedule definitions
+- opt-in analytics metadata
 
-Client applications use:
+AI provider keys remain in the separate AI Gateway.
 
-- Supabase project URL
-- Supabase publishable key
-- authenticated user JWT
-- Row Level Security
+## Chrome Extension authentication
 
-Never put a Supabase service-role / secret key in the Chrome Extension. AI provider secrets remain in the separate AI Gateway.
+The extension uses the official Firebase Chrome Extension flow for Manifest V3.
 
-When running as a Chrome Extension, login/sync requests the configured Supabase origin through Chrome optional host permissions from an explicit user action.
+Email/password authentication is implemented through the Firebase Web SDK's Chrome-extension entry point:
+
+```ts
+firebase/auth/web-extension
+```
+
+This avoids needing an offscreen OAuth document for the current login flow.
+
+Google popup/redirect login can be added later, but Firebase requires an offscreen document for popup/redirect based providers in MV3.
 
 ## Environment
 
+Copy `.env.example` and configure:
+
 ```env
-VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
 ```
 
-If either value is missing, the product stays in local-only mode.
+The first four values are required.
 
-## Schema
+If they are missing, AutoTool automatically stays in local-only mode.
 
-Migration:
+## Firestore model
+
+All user cloud data is nested under:
 
 ```text
-supabase/migrations/20261007113000_initial_backend.sql
+users/{uid}
+├── browserInstances/{deviceKey}
+├── campaigns/{campaignId}
+├── aiProfiles/{profileId}
+├── schedules/{localScheduleId}
+└── analyticsEvents/{localEventId}
 ```
 
-Tables:
+This makes ownership rules simple and explicit.
 
-- `profiles`
-- `browser_instances`
-- `campaigns`
-- `ai_profiles`
-- `schedule_definitions`
-- `analytics_events`
+## Security Rules
 
-Every client-facing table has RLS enabled.
+`firestore.rules` allows a signed-in user to access only their own `users/{uid}` tree.
 
-## Browser instance registration
+Deploy:
 
-Each installation uses a stable random `device_key`. Cloud metadata is intentionally minimal and no longer uploads the browser user-agent or language.
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+Do not treat Firebase Web config values as authorization. Firestore Security Rules are the authorization boundary.
+
+## Extension host permissions
+
+Firebase SDK requests can reach:
+- the configured Firebase Auth domain
+- `identitytoolkit.googleapis.com`
+- `securetoken.googleapis.com`
+- `firestore.googleapis.com`
+- `www.googleapis.com`
+
+AutoTool requests these host permissions only after the user explicitly presses a Firebase login/sync action.
+
+## Authentication setup
+
+In Firebase Console:
+
+1. Open **Authentication → Sign-in method**.
+2. Enable **Email/Password**.
+3. Create a Web App and copy its Web config into `.env`.
+4. Create a Firestore database.
+5. Deploy `firestore.rules`.
+
+The current implementation supports:
+- create account
+- sign in
+- password reset
+- sign out
 
 ## Schedule sync
 
-Schedule sync compares local and remote revisions before writing.
+Each local schedule is stored in Firestore using its local schedule id as the document id.
 
-- local >= remote → local can be pushed
-- remote > local → conflict
-- conflict requires an explicit choice in the UI
-- cloud never silently overwrites local
-- local never silently overwrites newer cloud state
+Conflict policy:
 
-## Analytics telemetry
+- local revision > remote → local may be pushed
+- local revision == remote → local may be pushed idempotently
+- remote revision > local → conflict
+- conflict requires explicit **Dùng bản Firestore** or **Giữ bản local**
 
-Telemetry is **off by default**.
+There is no silent overwrite.
 
-When a user opts in, only normalized metadata is uploaded:
+## Telemetry
 
+Telemetry remains **off by default**.
+
+After explicit opt-in, Firestore receives only:
 - local event id
-- event category
-- event level
+- browser instance id
+- category
+- level
 - timestamp
 - telemetry schema version
 
-Post content, generated comments, event messages and event detail fields are excluded.
+It does not receive:
+- post content
+- generated comments
+- runtime event messages
+- runtime event detail text
+- profile URLs
+- profile labels
 
-A consent timestamp is stored locally. Events created before the current consent window are excluded even if the user later enables telemetry.
+Events created before the current consent timestamp are not uploaded later.
 
-## Authentication
+## Deployment state
 
-The Settings screen supports Supabase email magic-link authentication. The extension callback URL must be present in the Supabase Auth redirect allowlist.
+The repository is Firebase-ready, but no Firebase project is connected through a ChatGPT Firebase connector in this environment.
 
-## Current deployment state
-
-No Supabase project is currently exposed by the connected account. The migration is ready but has not been applied to a live development project.
-
-Project creation is not performed automatically because it can have billing/resource implications.
+Project creation and billing-plan decisions remain user-controlled.

@@ -1,7 +1,7 @@
 import type { RemoteScheduleRecord } from './types'
 
 export interface RemoteRevision {
-  local_schedule_id: string
+  localScheduleId: string
   revision: number | string
 }
 
@@ -15,18 +15,18 @@ export function resolveScheduleSync(
   remoteRows: RemoteRevision[],
 ): ScheduleSyncDecision {
   const remoteRevision = new Map(
-    remoteRows.map((item) => [item.local_schedule_id, Number(item.revision)]),
+    remoteRows.map((item) => [item.localScheduleId, Number(item.revision)]),
   )
 
   const conflicts = localRows
     .filter((row) => {
-      const remote = remoteRevision.get(row.local_schedule_id)
+      const remote = remoteRevision.get(row.localScheduleId)
       return remote !== undefined && remote > row.revision
     })
-    .map((row) => row.local_schedule_id)
+    .map((row) => row.localScheduleId)
 
   const rowsToPush = localRows.filter((row) => {
-    const remote = remoteRevision.get(row.local_schedule_id)
+    const remote = remoteRevision.get(row.localScheduleId)
     return remote === undefined || row.revision >= remote
   })
 

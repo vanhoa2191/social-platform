@@ -1,32 +1,31 @@
 import type { RuntimeEvent } from '../runtime/types'
 
-export interface TelemetryEventRow {
-  browser_instance_id: string
-  local_event_id: string
-  event_type: string
+export interface TelemetryEventRecord {
+  browserInstanceId: string
+  localEventId: string
+  eventType: string
   category: RuntimeEvent['category']
   level: RuntimeEvent['level']
   payload: {
     schemaVersion: 1
   }
-  occurred_at: string
+  occurredAt: string
 }
 
-export function toTelemetryEventRow(
+export function toTelemetryEventRecord(
   event: RuntimeEvent,
   browserInstanceId: string,
-): TelemetryEventRow {
+): TelemetryEventRecord {
   return {
-    browser_instance_id: browserInstanceId,
-    local_event_id: event.id,
-    event_type: event.category.toLowerCase(),
+    browserInstanceId,
+    localEventId: event.id,
+    eventType: event.category.toLowerCase(),
     category: event.category,
     level: event.level,
     payload: { schemaVersion: 1 },
-    occurred_at: new Date(event.createdAt).toISOString(),
+    occurredAt: new Date(event.createdAt).toISOString(),
   }
 }
-
 
 export function telemetryConsentCutoff(
   watermark: number,

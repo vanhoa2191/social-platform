@@ -1,30 +1,31 @@
 export interface BrowserInstanceRecord {
   id?: string
-  device_key: string
+  deviceKey: string
   name: string
-  extension_version: string
-  last_seen_at: string
+  extensionVersion: string
+  lastSeenAt: string
   metadata: Record<string, unknown>
 }
 
 export interface RemoteScheduleRecord {
   id?: string
-  local_schedule_id: string
-  browser_instance_id?: string | null
+  localScheduleId: string
+  browserInstanceId?: string | null
   name: string
   enabled: boolean
-  interval_minutes: number
-  max_posts: number
-  start_hour: number
-  end_hour: number
-  account_context_key?: string | null
-  account_label?: string | null
+  intervalMinutes: number
+  maxPosts: number
+  startHour: number
+  endHour: number
+  accountContextKey?: string | null
+  accountLabel?: string | null
   revision: number
-  last_synced_at: string
+  lastSyncedAt: string
 }
 
 export interface SyncSummary {
   mode: 'local-only' | 'connected'
+  provider: 'firebase'
   browserInstanceId?: string
   schedulesPushed: number
   eventsPushed: number

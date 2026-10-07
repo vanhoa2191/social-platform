@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { telemetryConsentCutoff, toTelemetryEventRow } from './telemetry'
+import { telemetryConsentCutoff, toTelemetryEventRecord } from './telemetry'
 import type { RuntimeEvent } from '../runtime/types'
 
 describe('telemetry privacy', () => {
@@ -13,7 +13,7 @@ describe('telemetry privacy', () => {
       createdAt: Date.UTC(2026, 9, 7, 12, 0, 0),
     }
 
-    const row = toTelemetryEventRow(event, 'browser-1')
+    const row = toTelemetryEventRecord(event, 'browser-1')
     const serialized = JSON.stringify(row)
 
     expect(serialized).not.toContain(event.message)

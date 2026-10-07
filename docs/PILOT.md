@@ -1,93 +1,72 @@
-# Controlled pilot — v0.8.0
+# Controlled pilot — v0.9.0
 
 ## Objective
 
-The pilot is designed to validate browser compatibility and workflow reliability with a very small workload before any broader rollout.
+Validate the extension on a small workload before broader rollout.
 
-The product continues to keep final social-platform submission under explicit user control.
+Final social-platform submission remains under explicit user control.
 
-## Default pilot safeguards
+## Default safeguards
 
-Pilot mode is enabled by default.
-
-Default caps:
+Pilot mode is enabled by default:
 
 - 5 posts per scan/review run
 - 10 prepared actions per browser session
 - final submit remains manual
-- account-context verification remains mandatory
-- resource locks remain mandatory
-- Emergency Stop remains available
+- account-context verification required
+- resource locks required
+- Emergency Stop available
 
-The limits can be adjusted from **Settings → Pilot Readiness**.
+## Pilot Readiness
 
-## Pilot readiness checks
+Settings checks:
 
-The UI checks:
-
-- Chrome Extension runtime is active
-- IndexedDB schema is current
-- Facebook account context is verified
+- Chrome Extension runtime
+- IndexedDB schema
+- Facebook account context
 - Facebook adapter health
-- Emergency Stop state
-- effective pilot workload caps
-- telemetry consent state
+- safety controls
+- pilot caps
+- telemetry state
 - release channel
 
-Warnings do not automatically bypass safeguards.
+## Firebase backend pilot
 
-## Telemetry policy
+When Firebase is configured:
 
-Telemetry is **off by default**.
+1. create/sign in to a Firebase account;
+2. grant the requested Firebase origins;
+3. sync Firestore;
+4. verify `users/{uid}/browserInstances/{deviceKey}`;
+5. sync schedules;
+6. test a conflict resolution;
+7. verify a second Firebase user cannot access the first user's tree.
 
-When the user opts in, cloud analytics receives only:
+## Telemetry
 
-- event id
-- category
-- level
-- timestamp
-- telemetry schema version
+Telemetry is off by default.
 
-The following are deliberately excluded:
+After opt-in, only normalized metadata is uploaded to:
 
-- Facebook post content
-- generated comment text
-- runtime event message
-- runtime event detail
-- page title
-- profile label
-- profile URL
+```text
+users/{uid}/analyticsEvents/{localEventId}
+```
 
-Disabling telemetry stops future event uploads. Local runtime logs remain local.
+No post content, generated comment, runtime message/detail, page title, profile label or profile URL is included.
 
-## Pilot sequence
+Events created before consent are never uploaded later.
 
-Recommended sequence for each test account:
+## Real Facebook pilot
 
-1. Open Facebook and confirm the correct account.
-2. Open AutoTool Settings.
-3. Run Pilot Readiness.
-4. Require no BLOCKED items.
-5. Keep Pilot Mode enabled.
-6. Scan a small visible set of posts.
-7. Review generated drafts manually.
-8. Approve one draft.
-9. Prepare it in the composer.
-10. Confirm the extension does not submit automatically.
-11. Verify runtime logs.
-12. Stop immediately if the adapter becomes DEGRADED after a Facebook DOM change.
+Recommended sequence:
 
-## Beta → stable promotion
-
-A stable package is blocked unless:
-
-- all automated checks pass
-- release channel is `stable`
-- `RELEASE_APPROVED=1`
-- release tag exactly matches `v<manifest version>`
-
-GitHub's stable workflow uses the `production` environment. Repository maintainers should configure required reviewers for that environment before production use.
-
-## External blockers
-
-Live Supabase migration/RLS validation still requires a real development Supabase project. The connected account currently exposes no project, so no live database changes are performed automatically.
+1. Open an approved test Facebook account.
+2. Run Pilot Readiness.
+3. Require no BLOCKED checks.
+4. Scan a small visible set of posts.
+5. Review AI drafts manually.
+6. Approve one draft.
+7. Prepare it in composer.
+8. Confirm AutoTool does not submit automatically.
+9. Inspect runtime logs.
+10. Stop if adapter health becomes DEGRADED after a Facebook UI change.

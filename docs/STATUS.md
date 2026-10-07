@@ -34,7 +34,7 @@
 - token/cost metadata
 
 ### Phase 5 — Queue & Scheduler hardening
-- durable job leases
+- durable leases
 - stale worker recovery
 - resource locks
 - retry backoff
@@ -42,79 +42,78 @@
 - runtime events
 
 ### Phase 6 — Platform adapters & account context
-- Facebook adapter contract
+- Facebook adapter
 - account-context binding
 - adapter diagnostics
 - account-aware queue locks
-- account-aware review preparation
+- account-aware composer preparation
 
-### Phase 7 — Backend data layer
-- optional Supabase client
-- local-only fallback
-- auth/session storage
-- PostgreSQL migration + RLS
+### Phase 7 — Cloud data layer
+- local-first architecture
 - browser instance registration
-- campaign/AI profile repositories
+- campaigns repository
+- AI profile repository
 - schedule sync
-- analytics sync
+- revision conflict resolution
+- opt-in analytics metadata
 
 ### Phase 8 — Testing & release hardening
 - Facebook fixture integration tests
-- IndexedDB migration/data-preservation tests
-- release ZIP/checksum/metadata
-- CI artifacts
-- tag-based GitHub Release
-- explicit sync conflict resolution
+- IndexedDB migration tests
+- ZIP/checksum/release metadata
+- GitHub CI and tag release workflows
 
-### Phase 9 — Pilot & production readiness — DONE IN REPOSITORY
-- pilot mode enabled by default
-- configurable pilot caps for posts/run and actions/session
-- effective pilot limits enforced by runtime
-- Pilot Readiness UI
-- runtime DB/account/adapter/safety readiness checks
-- release-channel diagnostics
-- telemetry explicitly opt-in and off by default
-- telemetry consent timestamp prevents pre-consent events from being uploaded later
-- telemetry payload excludes post/comment/runtime message/detail text
-- Supabase host permission requested only from user-triggered actions
-- backend bundle lazy-loaded to reduce startup payload
+### Phase 9 — Pilot & production safeguards
+- pilot mode default-on
+- low-volume caps
+- readiness checklist
+- opt-in privacy-minimized telemetry
 - beta/stable release gate
-- stable tag must match manifest version
-- stable release requires explicit approval flag
-- GitHub production environment wired into stable release workflow
-- package manifest stamped with beta/stable channel
+
+### Phase 10 — Firebase backend migration — DONE IN REPOSITORY
+- Supabase SDK removed
+- Firebase Web SDK added
+- Firebase Auth email/password flow for MV3
+- Firebase password reset and sign-out
+- Cloud Firestore repositories
+- browser instance sync to Firestore
+- schedule sync to Firestore
+- explicit Firestore/local conflict resolution
+- telemetry documents use stable local event ids
+- Firestore Security Rules
+- Firebase CLI config
+- Firebase project environment template
+- targeted Firebase optional host permissions
+- Firebase setup guide
 
 ## Current product version
 
-0.8.0
+0.9.0-beta
 
-## Validation status
+## Validation
 
-- lint: pass with 0 warnings / 0 errors
-- automated tests: 33/33 passed
+- lint: 0 warnings / 0 errors
+- tests: 35/35 passed
 - TypeScript: pass
 - dashboard production build: pass
-- initial application chunk reduced through Backend lazy loading
 - Chrome Extension build verification: pass
 - AI Gateway bundle: pass
-- beta package verification: pass
-- stable release gate: rejects unapproved release
-- stable package verification: pass with approval + matching tag
+- beta release package: pass
 - dev server: HTTP 200
+- npm production dependency audit: 0 vulnerabilities
 
 ## External deployment note
 
-The connected Supabase account currently exposes **no project**. The SQL migration therefore remains prepared but has not been applied to a live development database.
-
-No Supabase project is created automatically because project creation can carry billing/resource implications.
+No Firebase project is connected through a Firebase management connector in this environment. The app and rules are prepared for a Firebase project, but project creation, billing choice and live rule deployment remain user-controlled.
 
 ## Next
 
-### Phase 10 — Real environment pilot
-1. Select or create a Supabase development project.
-2. Apply migrations and run Supabase security/performance advisors.
-3. Configure Auth redirect URL for the unpacked extension.
-4. Pilot the extension on approved test Facebook accounts/layouts.
-5. Record adapter compatibility findings without collecting private post/comment content.
-6. Require a clean pilot checklist before stable promotion.
-7. Merge the stacked implementation branches after review.
+### Phase 11 — Live Firebase pilot
+1. Create/select a Firebase development project.
+2. Register a Firebase Web App.
+3. Enable Email/Password Auth.
+4. Create Firestore.
+5. Deploy `firestore.rules`.
+6. Add the Firebase Web config to the extension build.
+7. Test with two Firebase users to confirm cross-user Firestore access is denied.
+8. Pilot on approved Facebook test accounts.

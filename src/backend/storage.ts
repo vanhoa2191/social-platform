@@ -42,19 +42,3 @@ export async function getEventWatermark(): Promise<number> {
 export async function setEventWatermark(value: number): Promise<void> {
   await setValue(EVENT_WATERMARK_KEY, value)
 }
-
-export const supabaseAuthStorage = {
-  async getItem(key: string): Promise<string | null> {
-    return (await getValue<string>(key)) ?? null
-  },
-  async setItem(key: string, value: string): Promise<void> {
-    await setValue(key, value)
-  },
-  async removeItem(key: string): Promise<void> {
-    if (extensionRuntime()) {
-      await chrome.storage.local.remove(key)
-      return
-    }
-    globalThis.localStorage?.removeItem(key)
-  },
-}

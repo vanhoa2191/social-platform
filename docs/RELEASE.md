@@ -1,69 +1,56 @@
-# Testing, pilot and release hardening — v0.8.0
+# Testing and release hardening — v0.9.0
 
-## Automated validation
+## Validation
 
 `npm run check` validates:
 
 - lint
 - unit tests
-- Facebook adapter fixture integration
-- IndexedDB v3 → v4 migration/data preservation
-- schedule conflict policy
+- Facebook adapter fixtures
+- IndexedDB migrations
+- sync conflict policy
 - pilot safeguards
 - telemetry privacy helpers
 - TypeScript
-- dashboard production build
-- Chrome Extension bundles
-- extension manifest
+- dashboard build
+- Chrome Extension runtime bundles
+- manifest verification
 - AI Gateway bundle
 
-## Production bundle
+## Backend bundle
 
-Supabase/backend code is lazy-loaded from the Settings screen. This keeps the initial dashboard chunk significantly smaller and avoids loading the backend client before it is needed.
+Firebase/backend UI remains lazy-loaded from Settings so the dashboard does not load Firebase until needed.
 
-## Release packaging
-
-Beta:
+## Beta package
 
 ```bash
 RELEASE_CHANNEL=beta npm run package:extension
 ```
 
-Stable packaging is gated:
+## Stable gate
 
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.8.0 \
+RELEASE_TAG=v0.9.0 \
 npm run package:extension
 ```
 
-Stable packaging is rejected unless the tag exactly matches `v<manifest version>`.
+Stable packaging is rejected without approval or with a mismatched tag.
 
-Each package creates:
+## Artifacts
 
-```text
-release/autotool-v<version>-<channel>.zip
-release/autotool-v<version>-<channel>.sha256
-release/autotool-v<version>-<channel>.json
-```
+- ZIP
+- SHA-256
+- release metadata JSON
 
-The packaged manifest receives `version_name=<version>-<channel>`.
+The packaged manifest is stamped with the release channel.
 
-The verifier checks the checksum, required extension files, version, channel and release metadata.
+## Live backend validation
 
-## GitHub Actions
+Repository tests validate Firebase config and application logic without a live project.
 
-PRs and feature/main pushes run CI and upload a beta artifact.
-
-Tags matching `v*` run the stable workflow through the GitHub `production` environment. Configure required environment reviewers before production use.
-
-## Pilot safeguards
-
-Pilot mode defaults to enabled with low-volume limits. The Settings screen exposes a readiness checklist for runtime DB, Facebook account context, adapter health, safety controls, pilot limits, telemetry consent and release channel.
-
-Telemetry remains opt-in and privacy-minimized.
-
-## Remaining external validation
-
-Live Supabase migration and RLS/security-advisor validation require a development Supabase project. The connected account currently exposes none.
+Before stable production use, deploy Firestore rules to a development Firebase project and verify:
+- unauthenticated access denied
+- user A can access only `users/A/**`
+- user A cannot access `users/B/**`

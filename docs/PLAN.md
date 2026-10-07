@@ -6,36 +6,35 @@
 ## Phase 4 — AI Gateway — DONE
 ## Phase 5 — Queue & Scheduler hardening — DONE
 ## Phase 6 — Platform adapters & account context — DONE
-## Phase 7 — Backend data layer — DONE IN REPOSITORY
-## Phase 8 — Testing & release hardening — DONE IN REPOSITORY
+## Phase 7 — Cloud data layer — DONE
+## Phase 8 — Testing & release hardening — DONE
+## Phase 9 — Pilot & production safeguards — DONE
 
-## Phase 9 — Pilot & production readiness — DONE IN REPOSITORY
+## Phase 10 — Firebase backend migration — DONE IN REPOSITORY
 
-Implemented:
+The cloud backend has been changed from Supabase/PostgreSQL to Firebase:
 
-- pilot mode defaults to enabled
-- low-volume caps enforced by runtime
-- Pilot Readiness checklist
-- account/adapter/database/safety checks
-- release channel visible in runtime
-- telemetry opt-in with privacy-minimized payload
-- consent timestamp so pre-consent logs are never uploaded after later opt-in
-- Supabase host permission requested from explicit user actions
-- Backend/Supabase code split from the initial dashboard bundle
-- beta and stable package channels
-- stable promotion gate
-- GitHub production environment for stable releases
+- Firebase Authentication
+- Cloud Firestore
+- Firestore Security Rules
+- Firebase Web config
+- MV3-compatible email/password auth using `firebase/auth/web-extension`
+- local-first schedule sync
+- explicit conflict resolution
+- opt-in analytics metadata
+- targeted Firebase host permission requests
 
-## Phase 10 — Real environment pilot — NEXT
+The old Supabase runtime dependency is removed.
 
-Requires external environment/user decision:
+## Phase 11 — Live Firebase pilot — NEXT
 
-- a real Supabase development project
-- migration deployment
-- RLS/security advisor review
-- Auth redirect configuration
-- controlled testing on approved Facebook test accounts
-- beta pilot acceptance criteria
-- stable promotion after pilot review
+Requires user-owned external Firebase resources:
 
-No Supabase project is created automatically.
+- Firebase development project
+- Web App config
+- Email/Password Auth enabled
+- Firestore database
+- deployed Security Rules
+- real extension pilot
+
+Google Sign-In can be added later using Firebase's official Manifest V3 offscreen-document flow.

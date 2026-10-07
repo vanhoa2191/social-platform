@@ -1,49 +1,76 @@
-import type { Session } from '@supabase/supabase-js'
-import { applyRemoteSchedule, getPilotSettings, listRuntimeEvents, listSchedules, touchSchedule } from '../extension/client'
-import { getSupabaseClient } from './client'
-import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
-import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  writeBatch,
+} from 'firebase/firestore'
+import type { User } from 'firebase/auth'
+import {
+  applyRemoteSchedule,
+  getPilotSettings,
+  listRuntimeEvents,
+  listSchedules,
+  touchSchedule,
+} from '../extension/client'
 import type { RuntimeEvent } from '../runtime/types'
+import { getFirebaseAuth, getFirestoreDb } from './client'
+import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
 import { resolveScheduleSync } from './syncPolicy'
-import { telemetryConsentCutoff, toTelemetryEventRow } from './telemetry'
+import { telemetryConsentCutoff, toTelemetryEventRecord } from './telemetry'
+import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
 
-async function requireSession(): Promise<{ client: NonNullable<ReturnType<typeof getSupabaseClient>>; session: Session }> {
-  const client = getSupabaseClient()
-  if (!client) throw new Error('Supabase backend chưa được cấu hình.')
-  const { data, error } = await client.auth.getSession()
-  if (error) throw error
-  if (!data.session) throw new Error('Hãy đăng nhập Supabase trước khi đồng bộ.')
-  return { client, session: data.session }
+function extensionRuntime(): boolean {
+  return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id)
+}
+
+async function getAuthModule() {
+  return extensionRuntime()
+    ? import('firebase/auth/web-extension')
+    : import('firebase/auth')
+}
+
+async function requireSession(): Promise<{
+  db: NonNullable<ReturnType<typeof getFirestoreDb>>
+  user: User
+}> {
+  const [auth, db] = await Promise.all([getFirebaseAuth(), Promise.resolve(getFirestoreDb())])
+  if (!auth || !db) throw new Error('Firebase backend chưa được cấu hình.')
+  await auth.authStateReady()
+  const user = auth.currentUser
+  if (!user) throw new Error('Hãy đăng nhập Firebase trước khi đồng bộ.')
+  return { db, user }
 }
 
 export async function registerBrowserInstance(extensionVersion: string): Promise<string> {
-  const { client } = await requireSession()
+  const { db, user } = await requireSession()
   const deviceKey = await getOrCreateDeviceKey()
   const payload: BrowserInstanceRecord = {
-    device_key: deviceKey,
-    name: navigator.userAgent.includes('Chrome') ? 'Chrome Extension' : 'Web Preview',
-    extension_version: extensionVersion,
-    last_seen_at: new Date().toISOString(),
+    id: deviceKey,
+    deviceKey,
+    name: extensionRuntime() ? 'Chrome Extension' : 'Web Preview',
+    extensionVersion,
+    lastSeenAt: new Date().toISOString(),
     metadata: {
-      runtime: typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id) ? 'extension' : 'web-preview',
+      runtime: extensionRuntime() ? 'extension' : 'web-preview',
     },
   }
 
-  const { data, error } = await client
-    .from('browser_instances')
-    .upsert(payload, { onConflict: 'user_id,device_key' })
-    .select('id')
-    .single()
-
-  if (error) throw error
-  return data.id as string
+  await setDoc(
+    doc(db, 'users', user.uid, 'browserInstances', deviceKey),
+    payload,
+    { merge: true },
+  )
+  return deviceKey
 }
 
 export async function syncRuntimeData(extensionVersion: string): Promise<SyncSummary> {
-  const client = getSupabaseClient()
-  if (!client) {
+  const db = getFirestoreDb()
+  if (!db) {
     return {
       mode: 'local-only',
+      provider: 'firebase',
       schedulesPushed: 0,
       eventsPushed: 0,
       remoteSchedules: 0,
@@ -54,55 +81,59 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     }
   }
 
-  await requireSession()
+  const { user } = await requireSession()
   const browserInstanceId = await registerBrowserInstance(extensionVersion)
   const schedulesResult = await listSchedules()
   if (!schedulesResult.ok) throw new Error(schedulesResult.error)
 
   const scheduleRows: RemoteScheduleRecord[] = schedulesResult.data.map((schedule) => ({
-    local_schedule_id: schedule.id,
-    browser_instance_id: browserInstanceId,
+    id: schedule.id,
+    localScheduleId: schedule.id,
+    browserInstanceId,
     name: schedule.name,
     enabled: schedule.enabled,
-    interval_minutes: schedule.intervalMinutes,
-    max_posts: schedule.maxPosts,
-    start_hour: schedule.startHour,
-    end_hour: schedule.endHour,
-    account_context_key: schedule.accountBinding?.key ?? null,
-    account_label: schedule.accountBinding?.label ?? null,
+    intervalMinutes: schedule.intervalMinutes,
+    maxPosts: schedule.maxPosts,
+    startHour: schedule.startHour,
+    endHour: schedule.endHour,
+    accountContextKey: schedule.accountBinding?.key ?? null,
+    accountLabel: schedule.accountBinding?.label ?? null,
     revision: schedule.updatedAt,
-    last_synced_at: new Date().toISOString(),
+    lastSyncedAt: new Date().toISOString(),
   }))
 
-  const { data: remoteSchedules, error: remoteError } = await client
-    .from('schedule_definitions')
-    .select('local_schedule_id, revision')
-  if (remoteError) throw remoteError
+  const schedulesCollection = collection(db, 'users', user.uid, 'schedules')
+  const remoteSnapshot = await getDocs(schedulesCollection)
+  const remoteRows = remoteSnapshot.docs.map((item) => ({
+    localScheduleId: item.id,
+    revision: Number(item.data().revision ?? 0),
+  }))
 
-  const syncDecision = resolveScheduleSync(
-    scheduleRows,
-    (remoteSchedules ?? []).map((item) => ({
-      local_schedule_id: item.local_schedule_id as string,
-      revision: Number(item.revision),
-    })),
-  )
+  const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
   const rowsToPush = syncDecision.rowsToPush
-  const conflicts = syncDecision.conflicts.length
 
   if (rowsToPush.length) {
-    const { error } = await client
-      .from('schedule_definitions')
-      .upsert(rowsToPush, { onConflict: 'user_id,local_schedule_id' })
-    if (error) throw error
+    const batch = writeBatch(db)
+    for (const row of rowsToPush) {
+      batch.set(
+        doc(db, 'users', user.uid, 'schedules', row.localScheduleId),
+        row,
+        { merge: true },
+      )
+    }
+    await batch.commit()
   }
 
   const pilotResult = await getPilotSettings()
   const telemetryEnabled = pilotResult.ok && pilotResult.data.telemetryOptIn
   let unsyncedEvents: RuntimeEvent[] = []
 
-  if (telemetryEnabled) {
+  if (telemetryEnabled && pilotResult.ok) {
     const watermark = await getEventWatermark()
-    const consentCutoff = telemetryConsentCutoff(watermark, pilotResult.data.telemetryOptInAt)
+    const consentCutoff = telemetryConsentCutoff(
+      watermark,
+      pilotResult.data.telemetryOptInAt,
+    )
     const eventResult = await listRuntimeEvents(500)
     if (!eventResult.ok) throw new Error(eventResult.error)
 
@@ -111,22 +142,27 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
       .sort((a, b) => a.createdAt - b.createdAt)
 
     if (unsyncedEvents.length) {
-      const { error } = await client.from('analytics_events').upsert(
-        unsyncedEvents.map((event) => toTelemetryEventRow(event, browserInstanceId)),
-        { onConflict: 'user_id,browser_instance_id,local_event_id', ignoreDuplicates: true },
-      )
-      if (error) throw error
+      const batch = writeBatch(db)
+      for (const event of unsyncedEvents) {
+        batch.set(
+          doc(db, 'users', user.uid, 'analyticsEvents', event.id),
+          toTelemetryEventRecord(event, browserInstanceId),
+          { merge: true },
+        )
+      }
+      await batch.commit()
       await setEventWatermark(unsyncedEvents[unsyncedEvents.length - 1].createdAt)
     }
   }
 
   return {
     mode: 'connected',
+    provider: 'firebase',
     browserInstanceId,
     schedulesPushed: rowsToPush.length,
     eventsPushed: unsyncedEvents.length,
-    remoteSchedules: remoteSchedules?.length ?? 0,
-    conflicts,
+    remoteSchedules: remoteSnapshot.size,
+    conflicts: syncDecision.conflicts.length,
     conflictScheduleIds: syncDecision.conflicts,
     telemetryEnabled,
     syncedAt: Date.now(),
@@ -134,30 +170,51 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
 }
 
 export async function getCurrentUserEmail(): Promise<string | undefined> {
-  const client = getSupabaseClient()
-  if (!client) return undefined
-  const { data } = await client.auth.getUser()
-  return data.user?.email
+  const auth = await getFirebaseAuth()
+  if (!auth) return undefined
+  await auth.authStateReady()
+  return auth.currentUser?.email ?? undefined
 }
 
-export async function sendMagicLink(email: string): Promise<void> {
-  const client = getSupabaseClient()
-  if (!client) throw new Error('Supabase backend chưa được cấu hình.')
-  const redirectTo = typeof window !== 'undefined' ? window.location.href : undefined
-  const { error } = await client.auth.signInWithOtp({
-    email,
-    options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
-  })
-  if (error) throw error
+export async function subscribeBackendAuth(
+  listener: (email: string | undefined) => void,
+): Promise<() => void> {
+  const auth = await getFirebaseAuth()
+  if (!auth) {
+    listener(undefined)
+    return () => undefined
+  }
+  const { onAuthStateChanged } = await getAuthModule()
+  return onAuthStateChanged(auth, (user) => listener(user?.email ?? undefined))
+}
+
+export async function signInBackend(email: string, password: string): Promise<void> {
+  const auth = await getFirebaseAuth()
+  if (!auth) throw new Error('Firebase backend chưa được cấu hình.')
+  const { signInWithEmailAndPassword } = await getAuthModule()
+  await signInWithEmailAndPassword(auth, email, password)
+}
+
+export async function createBackendAccount(email: string, password: string): Promise<void> {
+  const auth = await getFirebaseAuth()
+  if (!auth) throw new Error('Firebase backend chưa được cấu hình.')
+  const { createUserWithEmailAndPassword } = await getAuthModule()
+  await createUserWithEmailAndPassword(auth, email, password)
+}
+
+export async function sendBackendPasswordReset(email: string): Promise<void> {
+  const auth = await getFirebaseAuth()
+  if (!auth) throw new Error('Firebase backend chưa được cấu hình.')
+  const { sendPasswordResetEmail } = await getAuthModule()
+  await sendPasswordResetEmail(auth, email)
 }
 
 export async function signOutBackend(): Promise<void> {
-  const client = getSupabaseClient()
-  if (!client) return
-  const { error } = await client.auth.signOut()
-  if (error) throw error
+  const auth = await getFirebaseAuth()
+  if (!auth) return
+  const { signOut } = await getAuthModule()
+  await signOut(auth)
 }
-
 
 export async function resolveScheduleConflictKeepLocal(
   scheduleId: string,
@@ -172,26 +229,23 @@ export async function resolveScheduleConflictUseCloud(
   scheduleId: string,
   extensionVersion: string,
 ): Promise<SyncSummary> {
-  const { client } = await requireSession()
-  const { data, error } = await client
-    .from('schedule_definitions')
-    .select('local_schedule_id,name,enabled,interval_minutes,max_posts,start_hour,end_hour,account_context_key,account_label,revision')
-    .eq('local_schedule_id', scheduleId)
-    .single()
+  const { db, user } = await requireSession()
+  const snapshot = await getDoc(doc(db, 'users', user.uid, 'schedules', scheduleId))
+  if (!snapshot.exists()) throw new Error('Không tìm thấy lịch cloud.')
 
-  if (error) throw error
+  const data = snapshot.data() as RemoteScheduleRecord
   const applied = await applyRemoteSchedule({
-    id: data.local_schedule_id as string,
-    name: data.name as string,
-    enabled: Boolean(data.enabled),
-    intervalMinutes: Number(data.interval_minutes),
-    maxPosts: Number(data.max_posts),
-    startHour: Number(data.start_hour),
-    endHour: Number(data.end_hour),
-    accountBinding: data.account_context_key
+    id: data.localScheduleId,
+    name: data.name,
+    enabled: data.enabled,
+    intervalMinutes: data.intervalMinutes,
+    maxPosts: data.maxPosts,
+    startHour: data.startHour,
+    endHour: data.endHour,
+    accountBinding: data.accountContextKey
       ? {
-          key: data.account_context_key as string,
-          label: (data.account_label as string | null) ?? 'Facebook account',
+          key: data.accountContextKey,
+          label: data.accountLabel ?? 'Facebook account',
         }
       : undefined,
   }, Number(data.revision))

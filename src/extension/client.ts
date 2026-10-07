@@ -25,18 +25,25 @@ export function isExtensionRuntime(): boolean {
   return runtimeAvailable()
 }
 
-export async function requestExternalOriginPermission(url: string): Promise<ExtensionResponse<{ granted: boolean }>> {
+export async function requestExternalOriginPermissions(
+  urls: string[],
+): Promise<ExtensionResponse<{ granted: boolean }>> {
   if (!runtimeAvailable()) return { ok: false, error: 'Chỉ có thể cấp quyền khi đang chạy Chrome Extension.' }
   try {
-    const parsed = new URL(url)
-    const origin = `${parsed.origin}/*`
-    const already = await chrome.permissions.contains({ origins: [origin] })
+    const origins = Array.from(new Set(urls.map((url) => `${new URL(url).origin}/*`)))
+    const already = await chrome.permissions.contains({ origins })
     if (already) return { ok: true, data: { granted: true } }
-    const granted = await chrome.permissions.request({ origins: [origin] })
+    const granted = await chrome.permissions.request({ origins })
     return { ok: true, data: { granted } }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Không thể xin quyền truy cập host.' }
   }
+}
+
+export function requestExternalOriginPermission(
+  url: string,
+): Promise<ExtensionResponse<{ granted: boolean }>> {
+  return requestExternalOriginPermissions([url])
 }
 
 export async function requestGatewayOriginPermission(url: string): Promise<ExtensionResponse<{ granted: boolean }>> {
