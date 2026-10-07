@@ -8,33 +8,29 @@
 ## Phase 6 — Platform adapters & account context — DONE
 ## Phase 7 — Cloud data layer — DONE
 ## Phase 8 — Testing & release hardening — DONE
-## Phase 9 — Pilot & production safeguards — DONE
+## Phase 9 — Pilot safeguards — DONE
+## Phase 10 — Firebase backend migration — DONE
+## Phase 11 — Firebase emulator & security hardening — DONE IN REPOSITORY
 
-## Phase 10 — Firebase backend migration — DONE IN REPOSITORY
+Phase 11 adds:
 
-The cloud backend has been changed from Supabase/PostgreSQL to Firebase:
+- Firebase Emulator Suite configuration
+- Firebase app emulator mode
+- Firestore Security Rules allowlist
+- ownership/integrity/privacy rule tests
+- Java 21 emulator validation in CI and release
+- Firebase emulator visibility in Settings
 
-- Firebase Authentication
-- Cloud Firestore
-- Firestore Security Rules
-- Firebase Web config
-- MV3-compatible email/password auth using `firebase/auth/web-extension`
-- local-first schedule sync
-- explicit conflict resolution
-- opt-in analytics metadata
-- targeted Firebase host permission requests
+## Phase 12 — Real environment pilot — NEXT
 
-The old Supabase runtime dependency is removed.
-
-## Phase 11 — Live Firebase pilot — NEXT
-
-Requires user-owned external Firebase resources:
+Requires user-owned external resources:
 
 - Firebase development project
-- Web App config
+- Firebase Web App config
 - Email/Password Auth enabled
 - Firestore database
 - deployed Security Rules
-- real extension pilot
+- approved Facebook test accounts
+- pilot acceptance decision
 
-Google Sign-In can be added later using Firebase's official Manifest V3 offscreen-document flow.
+At this point, remaining work is environment deployment and controlled validation rather than missing core repository architecture.
