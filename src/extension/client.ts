@@ -144,6 +144,22 @@ export function deleteSchedule(scheduleId: string): Promise<ExtensionResponse<{ 
   return send<{ deleted: true }>({ type: 'SCHEDULE_DELETE', scheduleId })
 }
 
+export function listScheduleTombstones(): Promise<ExtensionResponse<string[]>> {
+  return send<string[]>({ type: 'SCHEDULE_TOMBSTONES_LIST' })
+}
+
+export function clearScheduleTombstones(scheduleIds: string[]): Promise<ExtensionResponse<{ cleared: true }>> {
+  return send<{ cleared: true }>({ type: 'SCHEDULE_TOMBSTONES_CLEAR', scheduleIds })
+}
+
+export function setScheduleRevision(
+  scheduleId: string,
+  revision: number,
+  definitionUpdatedAt: number,
+): Promise<ExtensionResponse<ReviewSchedule>> {
+  return send<ReviewSchedule>({ type: 'SCHEDULE_SET_REVISION', scheduleId, revision, definitionUpdatedAt })
+}
+
 export function runScheduleNow(scheduleId: string): Promise<ExtensionResponse<{ queued: true }>> {
   return send<{ queued: true }>({ type: 'SCHEDULE_RUN_NOW', scheduleId })
 }

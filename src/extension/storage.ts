@@ -8,6 +8,7 @@ const ACTION_COUNT_KEY = 'autotool.sessionActionCount'
 const AI_SETTINGS_KEY = 'autotool.aiGatewaySettings'
 const AI_TOKEN_KEY = 'autotool.aiGatewayToken'
 const PILOT_SETTINGS_KEY = 'autotool.pilotSettings'
+const SCHEDULE_TOMBSTONES_KEY = 'autotool.scheduleTombstones'
 
 export interface ExtensionSettings {
   reviewBeforeAction: boolean
@@ -118,4 +119,23 @@ export async function savePilotSettings(settings: PilotSettings): Promise<PilotS
 
   await chrome.storage.local.set({ [PILOT_SETTINGS_KEY]: normalized })
   return normalized
+}
+
+export async function getScheduleTombstones(): Promise<string[]> {
+  const result = await chrome.storage.local.get(SCHEDULE_TOMBSTONES_KEY)
+  const value = result[SCHEDULE_TOMBSTONES_KEY]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+export async function addScheduleTombstone(scheduleId: string): Promise<void> {
+  const current = await getScheduleTombstones()
+  await chrome.storage.local.set({ [SCHEDULE_TOMBSTONES_KEY]: Array.from(new Set([...current, scheduleId])) })
+}
+
+export async function clearScheduleTombstones(scheduleIds: string[]): Promise<void> {
+  const removed = new Set(scheduleIds)
+  const current = await getScheduleTombstones()
+  await chrome.storage.local.set({
+    [SCHEDULE_TOMBSTONES_KEY]: current.filter((id) => !removed.has(id)),
+  })
 }
