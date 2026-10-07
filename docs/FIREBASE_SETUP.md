@@ -1,25 +1,54 @@
 # Firebase setup checklist
 
-## 1. Create/select project
+## 1. Local emulator first
 
-Create a Firebase project in Firebase Console.
+You can validate the backend without a real Firebase project.
 
-Recommended for development:
+Requirements:
+
+- Node.js
+- Java 21+
+
+Run:
+
+```bash
+npm run test:firebase-emulator
+```
+
+This launches a demo Firestore emulator and executes Security Rules tests.
+
+For application development against emulators, configure:
+
+```env
+VITE_FIREBASE_USE_EMULATORS=true
+VITE_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+VITE_FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+```
+
+Then start the Firebase Auth + Firestore emulators separately with Firebase CLI.
+
+## 2. Create/select a real project
+
+Create a Firebase development project in Firebase Console.
+
+Recommended:
 - separate dev project
-- Firestore location close to your expected users
-- keep production project separate from pilot/dev
+- separate production project
+- choose Firestore region deliberately
+- do not use production data during pilot
 
-## 2. Register Web App
+## 3. Register Web App
 
-Copy the Firebase Web configuration into `.env`.
+Copy Firebase Web config into `.env`.
 
 Required:
-- apiKey
-- authDomain
-- projectId
-- appId
 
-## 3. Enable Authentication
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+
+## 4. Enable Authentication
 
 Enable:
 
@@ -29,27 +58,27 @@ Authentication
 → Email/Password
 ```
 
-The current Chrome Extension flow uses `firebase/auth/web-extension`.
+The Chrome Extension uses `firebase/auth/web-extension`.
 
-## 4. Create Firestore
+## 5. Create Firestore
 
-Create a Cloud Firestore database.
-
-Then deploy:
+Create Cloud Firestore, then deploy:
 
 ```bash
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-## 5. Verify Security Rules
+## 6. Verify production Security Rules
 
-Use two different Firebase Auth users and verify:
+Use two different Firebase users and verify:
 
 - User A can read/write `users/A/**`
 - User A cannot read/write `users/B/**`
-- unauthenticated reads/writes are rejected
+- unauthenticated access is rejected
+- telemetry documents with extra content fields are rejected
+- unknown subcollections are rejected
 
-## 6. Build extension
+## 7. Build extension
 
 ```bash
 npm run check
@@ -58,17 +87,18 @@ RELEASE_CHANNEL=beta npm run package:extension
 
 Load `dist/` as an unpacked Chrome Extension.
 
-## 7. Pilot
+## 8. Pilot
 
 Open Settings → Firebase Backend & Sync.
 
-1. Create/login with a Firebase account.
-2. Grant the requested Firebase host permissions.
-3. Click **Đồng bộ Firestore**.
-4. Confirm a browser instance document appears under your Firebase Auth uid.
-5. Create/edit a schedule and sync again.
-6. Verify only your own `users/{uid}` tree is accessible.
+1. Create/login with Firebase account.
+2. Grant Firebase host permissions.
+3. Sync Firestore.
+4. Confirm browser instance document under your uid.
+5. Create/edit a schedule and sync.
+6. Test one cloud/local conflict.
+7. Verify a second user cannot access the first user's tree.
 
 ## Optional later
 
-Google Sign-In can be added later. Firebase's official MV3 guidance requires an offscreen document for popup/redirect provider flows.
+Google Sign-In can be added using Firebase's Manifest V3 offscreen-document flow. It is not required for the current email/password pilot.
