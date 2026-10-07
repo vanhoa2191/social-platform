@@ -9,11 +9,12 @@ import { isSupportedFacebookUrl } from '../core/helpers'
 import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, updateJob } from './queue'
 import { acquireLock, releaseLock } from '../runtime/locks'
 import { clearRuntimeEvents, listRuntimeEvents, logRuntimeEvent } from '../runtime/events'
-import { deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, upsertSchedule } from '../runtime/schedules'
+import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, touchSchedule, upsertSchedule } from '../runtime/schedules'
 import { computeBackoffMs } from '../runtime/retry'
 import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken } from './storage'
+import { getRuntimeDbInfo } from './runtimeDb'
 import type {
   BackgroundRequest,
   ContentRequest,
@@ -120,11 +121,12 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
   const runtimeContext = await getFacebookRuntimeContext()
   const activeTab = runtimeContext?.tab
   const candidates = await listCandidates(['READY_FOR_REVIEW', 'APPROVED', 'PREPARING'])
-  const [settings, sessionActions, schedules, events] = await Promise.all([
+  const [settings, sessionActions, schedules, events, dbInfo] = await Promise.all([
     getSettings(),
     getSessionActionCount(),
     listSchedules(),
     listRuntimeEvents(100),
+    getRuntimeDbInfo(),
   ])
   return {
     extensionId: chrome.runtime.id,
@@ -143,6 +145,8 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
     reviewCandidates: candidates.length,
     enabledSchedules: schedules.filter((schedule) => schedule.enabled).length,
     recentErrors: events.filter((event) => event.level === 'ERROR').length,
+    runtimeDbVersion: dbInfo.version,
+    runtimeDbSchemaVersion: dbInfo.schemaVersion,
     sessionActions,
     maxSessionActions: settings.maxActionsPerSession,
     safety: await getSafetyState(),
@@ -611,6 +615,21 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         )
         await processQueueTick()
         sendResponse({ ok: true, data: { queued: true } })
+        return
+      }
+      if (message.type === 'SCHEDULE_TOUCH') {
+        const schedule = await touchSchedule(message.scheduleId)
+        if (!schedule) throw new Error('Không tìm thấy lịch local cần giữ.')
+        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã chọn giữ bản local cho lịch "${schedule.name}".`)
+        const response: ExtensionResponse<ReviewSchedule> = { ok: true, data: schedule }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'SCHEDULE_APPLY_REMOTE') {
+        const schedule = await applyRemoteSchedule(message.schedule, message.revision)
+        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã áp dụng bản cloud cho lịch "${schedule.name}".`)
+        const response: ExtensionResponse<ReviewSchedule> = { ok: true, data: schedule }
+        sendResponse(response)
         return
       }
       if (message.type === 'EVENT_LIST') {

@@ -72,6 +72,8 @@ export interface RuntimeStatus {
   reviewCandidates: number
   enabledSchedules: number
   recentErrors: number
+  runtimeDbVersion: number
+  runtimeDbSchemaVersion?: number
   sessionActions: number
   maxSessionActions: number
   safety: AutomationSafetyState
@@ -116,6 +118,8 @@ export type BackgroundRequest =
   | { type: 'SCHEDULE_UPSERT'; schedule: ReviewScheduleInput }
   | { type: 'SCHEDULE_DELETE'; scheduleId: string }
   | { type: 'SCHEDULE_RUN_NOW'; scheduleId: string }
+  | { type: 'SCHEDULE_TOUCH'; scheduleId: string }
+  | { type: 'SCHEDULE_APPLY_REMOTE'; schedule: ReviewScheduleInput & { id: string }; revision: number }
   | { type: 'EVENT_LIST'; limit?: number }
   | { type: 'EVENT_CLEAR' }
 

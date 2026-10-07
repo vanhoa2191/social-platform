@@ -137,3 +137,15 @@ export function listRuntimeEvents(limit = 100): Promise<ExtensionResponse<Runtim
 export function clearRuntimeEvents(): Promise<ExtensionResponse<{ cleared: true }>> {
   return send<{ cleared: true }>({ type: 'EVENT_CLEAR' })
 }
+
+
+export function touchSchedule(scheduleId: string): Promise<ExtensionResponse<ReviewSchedule>> {
+  return send<ReviewSchedule>({ type: 'SCHEDULE_TOUCH', scheduleId })
+}
+
+export function applyRemoteSchedule(
+  schedule: ReviewScheduleInput & { id: string },
+  revision: number,
+): Promise<ExtensionResponse<ReviewSchedule>> {
+  return send<ReviewSchedule>({ type: 'SCHEDULE_APPLY_REMOTE', schedule, revision })
+}

@@ -71,3 +71,50 @@ export async function markScheduleRun(id: string, now = Date.now()): Promise<Rev
 export function scheduleCanRun(schedule: ReviewSchedule, now = new Date()): boolean {
   return Boolean(schedule.accountBinding) && schedule.enabled && schedule.nextRunAt <= now.getTime() && withinLocalWindow(now, schedule.startHour, schedule.endHour)
 }
+
+
+export async function touchSchedule(id: string, now = Date.now()): Promise<ReviewSchedule | undefined> {
+  const db = await openRuntimeDb()
+  const tx = db.transaction(SCHEDULES_STORE, 'readwrite')
+  const store = tx.objectStore(SCHEDULES_STORE)
+  const current = await requestToPromise(store.get(id) as IDBRequest<ReviewSchedule | undefined>)
+  if (!current) {
+    await transactionDone(tx)
+    db.close()
+    return undefined
+  }
+  const updated = { ...current, updatedAt: now }
+  store.put(updated)
+  await transactionDone(tx)
+  db.close()
+  return updated
+}
+
+export async function applyRemoteSchedule(
+  input: ReviewScheduleInput & { id: string },
+  revision: number,
+): Promise<ReviewSchedule> {
+  const db = await openRuntimeDb()
+  const tx = db.transaction(SCHEDULES_STORE, 'readwrite')
+  const store = tx.objectStore(SCHEDULES_STORE)
+  const existing = await requestToPromise(store.get(input.id) as IDBRequest<ReviewSchedule | undefined>)
+  const now = Date.now()
+  const schedule: ReviewSchedule = {
+    id: input.id,
+    name: input.name.trim() || 'Lịch quét Facebook',
+    enabled: input.enabled,
+    intervalMinutes: Math.max(15, Math.min(1440, input.intervalMinutes)),
+    maxPosts: Math.max(1, Math.min(20, input.maxPosts)),
+    startHour: Math.max(0, Math.min(23, input.startHour)),
+    endHour: Math.max(0, Math.min(23, input.endHour)),
+    accountBinding: input.accountBinding,
+    nextRunAt: nextRun(input.intervalMinutes, now),
+    lastRunAt: existing?.lastRunAt,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: revision,
+  }
+  store.put(schedule)
+  await transactionDone(tx)
+  db.close()
+  return schedule
+}

@@ -1,7 +1,7 @@
 {
   "name": "social-platform",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,9 @@
     "lint": "oxlint",
     "check": "npm run lint && npm test && npm run build",
     "preview": "vite preview",
-    "build:gateway": "node scripts/build-gateway.mjs"
+    "build:gateway": "node scripts/build-gateway.mjs",
+    "package:extension": "node scripts/package-extension.mjs && node scripts/verify-release.mjs",
+    "release:extension": "npm run build && npm run package:extension"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -26,7 +28,10 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "adm-zip": "^0.6.1",
     "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.14.5",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",

@@ -1,8 +1,9 @@
 import type { Session } from '@supabase/supabase-js'
-import { listRuntimeEvents, listSchedules } from '../extension/client'
+import { applyRemoteSchedule, listRuntimeEvents, listSchedules, touchSchedule } from '../extension/client'
 import { getSupabaseClient } from './client'
 import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
+import { resolveScheduleSync } from './syncPolicy'
 
 async function requireSession(): Promise<{ client: NonNullable<ReturnType<typeof getSupabaseClient>>; session: Session }> {
   const client = getSupabaseClient()
@@ -46,6 +47,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
       eventsPushed: 0,
       remoteSchedules: 0,
       conflicts: 0,
+      conflictScheduleIds: [],
       syncedAt: Date.now(),
     }
   }
@@ -75,19 +77,15 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     .select('local_schedule_id, revision')
   if (remoteError) throw remoteError
 
-  const remoteRevision = new Map(
-    (remoteSchedules ?? []).map((item) => [item.local_schedule_id as string, Number(item.revision)]),
+  const syncDecision = resolveScheduleSync(
+    scheduleRows,
+    (remoteSchedules ?? []).map((item) => ({
+      local_schedule_id: item.local_schedule_id as string,
+      revision: Number(item.revision),
+    })),
   )
-
-  const conflicts = scheduleRows.filter((row) => {
-    const remote = remoteRevision.get(row.local_schedule_id)
-    return remote !== undefined && remote > row.revision
-  }).length
-
-  const rowsToPush = scheduleRows.filter((row) => {
-    const remote = remoteRevision.get(row.local_schedule_id)
-    return remote === undefined || row.revision >= remote
-  })
+  const rowsToPush = syncDecision.rowsToPush
+  const conflicts = syncDecision.conflicts.length
 
   if (rowsToPush.length) {
     const { error } = await client
@@ -131,6 +129,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     eventsPushed: unsyncedEvents.length,
     remoteSchedules: remoteSchedules?.length ?? 0,
     conflicts,
+    conflictScheduleIds: syncDecision.conflicts,
     syncedAt: Date.now(),
   }
 }
@@ -158,4 +157,46 @@ export async function signOutBackend(): Promise<void> {
   if (!client) return
   const { error } = await client.auth.signOut()
   if (error) throw error
+}
+
+
+export async function resolveScheduleConflictKeepLocal(
+  scheduleId: string,
+  extensionVersion: string,
+): Promise<SyncSummary> {
+  const touched = await touchSchedule(scheduleId)
+  if (!touched.ok) throw new Error(touched.error)
+  return syncRuntimeData(extensionVersion)
+}
+
+export async function resolveScheduleConflictUseCloud(
+  scheduleId: string,
+  extensionVersion: string,
+): Promise<SyncSummary> {
+  const { client } = await requireSession()
+  const { data, error } = await client
+    .from('schedule_definitions')
+    .select('local_schedule_id,name,enabled,interval_minutes,max_posts,start_hour,end_hour,account_context_key,account_label,revision')
+    .eq('local_schedule_id', scheduleId)
+    .single()
+
+  if (error) throw error
+  const applied = await applyRemoteSchedule({
+    id: data.local_schedule_id as string,
+    name: data.name as string,
+    enabled: Boolean(data.enabled),
+    intervalMinutes: Number(data.interval_minutes),
+    maxPosts: Number(data.max_posts),
+    startHour: Number(data.start_hour),
+    endHour: Number(data.end_hour),
+    accountBinding: data.account_context_key
+      ? {
+          key: data.account_context_key as string,
+          label: (data.account_label as string | null) ?? 'Facebook account',
+        }
+      : undefined,
+  }, Number(data.revision))
+
+  if (!applied.ok) throw new Error(applied.error)
+  return syncRuntimeData(extensionVersion)
 }

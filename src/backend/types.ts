@@ -30,5 +30,6 @@ export interface SyncSummary {
   eventsPushed: number
   remoteSchedules: number
   conflicts: number
+  conflictScheduleIds: string[]
   syncedAt: number
 }

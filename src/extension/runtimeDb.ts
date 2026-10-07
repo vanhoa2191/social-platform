@@ -1,10 +1,11 @@
 export const DB_NAME = 'autotool-runtime'
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 export const JOBS_STORE = 'jobs'
 export const CANDIDATES_STORE = 'candidates'
 export const LOCKS_STORE = 'locks'
 export const SCHEDULES_STORE = 'schedules'
 export const EVENTS_STORE = 'events'
+export const META_STORE = 'meta'
 
 export function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -51,8 +52,53 @@ export async function openRuntimeDb(): Promise<IDBDatabase> {
         events.createIndex('createdAt', 'createdAt')
         events.createIndex('level', 'level')
       }
+      const meta = database.objectStoreNames.contains(META_STORE)
+        ? request.transaction!.objectStore(META_STORE)
+        : database.createObjectStore(META_STORE, { keyPath: 'key' })
+      meta.put({
+        key: 'schema',
+        version: DB_VERSION,
+        upgradedAt: Date.now(),
+      })
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error ?? new Error('Unable to open runtime database'))
   })
+}
+
+
+export interface RuntimeDbInfo {
+  name: string
+  version: number
+  stores: string[]
+  schemaVersion?: number
+  upgradedAt?: number
+}
+
+export async function getRuntimeDbInfo(): Promise<RuntimeDbInfo> {
+  const db = await openRuntimeDb()
+  let schemaVersion: number | undefined
+  let upgradedAt: number | undefined
+
+  if (db.objectStoreNames.contains(META_STORE)) {
+    const tx = db.transaction(META_STORE, 'readonly')
+    const meta = await requestToPromise(
+      tx.objectStore(META_STORE).get('schema') as IDBRequest<
+        { key: 'schema'; version: number; upgradedAt: number } | undefined
+      >,
+    )
+    await transactionDone(tx)
+    schemaVersion = meta?.version
+    upgradedAt = meta?.upgradedAt
+  }
+
+  const info: RuntimeDbInfo = {
+    name: db.name,
+    version: db.version,
+    stores: Array.from(db.objectStoreNames),
+    schemaVersion,
+    upgradedAt,
+  }
+  db.close()
+  return info
 }

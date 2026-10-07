@@ -3,6 +3,8 @@ import { backendConfigured } from '../backend/config'
 import { getSupabaseClient } from '../backend/client'
 import {
   getCurrentUserEmail,
+  resolveScheduleConflictKeepLocal,
+  resolveScheduleConflictUseCloud,
   sendMagicLink,
   signOutBackend,
   syncRuntimeData,
@@ -87,6 +89,26 @@ export default function BackendPanel() {
     }
   }
 
+  async function resolveConflict(scheduleId: string, choice: 'local' | 'cloud') {
+    setStatus('loading')
+    setMessage('')
+    try {
+      const result = choice === 'local'
+        ? await resolveScheduleConflictKeepLocal(scheduleId, version)
+        : await resolveScheduleConflictUseCloud(scheduleId, version)
+      setSync(result)
+      setMessage(
+        choice === 'local'
+          ? 'Đã giữ bản local và đồng bộ lại.'
+          : 'Đã áp dụng bản cloud vào runtime local và đồng bộ lại.',
+      )
+      setStatus('ready')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không giải quyết được conflict.')
+      setStatus('error')
+    }
+  }
+
   async function logout() {
     setStatus('loading')
     try {
@@ -156,13 +178,45 @@ export default function BackendPanel() {
       </div>
 
       {sync && (
-        <div className="backend-sync-summary">
-          <span>Browser: <b>{sync.browserInstanceId?.slice(0, 8) ?? 'local'}</b></span>
-          <span>Schedules: <b>{sync.schedulesPushed}</b></span>
-          <span>Events: <b>{sync.eventsPushed}</b></span>
-          <span>Remote schedules: <b>{sync.remoteSchedules}</b></span>
-          <span>Conflicts: <b>{sync.conflicts}</b></span>
-        </div>
+        <>
+          <div className="backend-sync-summary">
+            <span>Browser: <b>{sync.browserInstanceId?.slice(0, 8) ?? 'local'}</b></span>
+            <span>Schedules: <b>{sync.schedulesPushed}</b></span>
+            <span>Events: <b>{sync.eventsPushed}</b></span>
+            <span>Remote schedules: <b>{sync.remoteSchedules}</b></span>
+            <span>Conflicts: <b>{sync.conflicts}</b></span>
+          </div>
+
+          {sync.conflictScheduleIds.length > 0 && (
+            <div className="backend-conflicts">
+              <div>
+                <strong>Có {sync.conflictScheduleIds.length} lịch cloud mới hơn local</strong>
+                <span>Chọn rõ nguồn dữ liệu để tránh overwrite âm thầm.</span>
+              </div>
+              {sync.conflictScheduleIds.map((scheduleId) => (
+                <div className="backend-conflict-row" key={scheduleId}>
+                  <code>{scheduleId}</code>
+                  <div className="button-row">
+                    <button
+                      className="secondary"
+                      disabled={status === 'loading'}
+                      onClick={() => void resolveConflict(scheduleId, 'cloud')}
+                    >
+                      Dùng bản cloud
+                    </button>
+                    <button
+                      className="primary"
+                      disabled={status === 'loading'}
+                      onClick={() => void resolveConflict(scheduleId, 'local')}
+                    >
+                      Giữ bản local
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {message && <div className={status === 'error' ? 'backend-message error' : 'backend-message'}>{message}</div>}

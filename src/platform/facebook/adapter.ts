@@ -194,7 +194,7 @@ function diagnose(): AdapterDiagnostic {
 
   const health = !isSupportedFacebookUrl(window.location.href)
     ? 'UNAVAILABLE'
-    : warnings.length >= 2
+    : warnings.length > 0
       ? 'DEGRADED'
       : 'HEALTHY'
 

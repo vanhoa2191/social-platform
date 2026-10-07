@@ -99,6 +99,10 @@ export default function RuntimeCard() {
           <strong>{status ? `${status.enabledSchedules} lịch · ${status.recentErrors} lỗi` : '—'}</strong>
         </div>
         <div className="runtime-stat">
+          <span>Runtime DB</span>
+          <strong>{status ? `v${status.runtimeDbVersion} · schema ${status.runtimeDbSchemaVersion ?? '—'}` : '—'}</strong>
+        </div>
+        <div className="runtime-stat">
           <span>Giới hạn phiên</span>
           <strong>{status ? `${status.sessionActions} / ${status.maxSessionActions}` : '—'}</strong>
         </div>

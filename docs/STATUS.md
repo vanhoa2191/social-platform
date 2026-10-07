@@ -40,49 +40,63 @@
 - retry backoff
 - persisted schedules
 - runtime events
-- real scheduler/log UI
 
 ### Phase 6 — Platform adapters & account context
-- platform adapter contract
-- Facebook adapter
+- Facebook adapter contract
 - account-context binding
 - adapter diagnostics
 - account-aware queue locks
 - account-aware review preparation
 
-### Phase 7 — Backend data layer — DONE IN REPOSITORY
-- Supabase JS client integration
-- local-only fallback when backend is not configured
-- email magic-link auth flow
-- extension-safe auth storage
-- browser-instance registration
-- PostgreSQL schema migration
-- Row Level Security policies
-- campaigns repository
-- AI profiles repository
-- schedule-definition sync
-- analytics-event sync
-- idempotent event upload
-- sync watermark
-- revision-aware schedule conflict detection
-- Backend & Sync settings UI
-- no service-role/secret key exposed in extension
+### Phase 7 — Backend data layer
+- optional Supabase client
+- local-only fallback
+- auth/session storage
+- PostgreSQL migration + RLS
+- browser instance registration
+- campaign/AI profile repositories
+- schedule sync
+- analytics sync
+
+### Phase 8 — Testing & release hardening — DONE IN REPOSITORY
+- Facebook fixture integration tests
+- approved composer preparation fixture test
+- IndexedDB v3 → v4 upgrade test with data preservation
+- runtime DB schema diagnostics
+- schedule sync policy unit tests
+- explicit cloud/local schedule conflict-resolution UI
+- versioned ZIP packaging
+- SHA-256 release checksum
+- release metadata JSON
+- package verification
+- GitHub Actions CI artifact packaging
+- tag-based GitHub Release workflow
 
 ## Current product version
 
-0.6.0
+0.7.0
 
-## Deployment note
+## Validation status
 
-No Supabase project is currently attached through the connector, so the migration is prepared but not applied to a live project.
+- lint: pass
+- automated tests: 28+ and expanding
+- TypeScript: pass
+- dashboard build: pass
+- Chrome Extension build verification: pass
+- AI Gateway bundle: pass
+- release package verification: pass when package command is run
+
+## External deployment note
+
+No live Supabase project is available through the connected Supabase account in this session, so the SQL migration has not been applied to a real development project.
 
 ## Next
 
-### Phase 8 — Testing & release
-1. Add fixture-based Facebook adapter tests.
-2. Add browser integration tests.
-3. Add migration validation against a development Supabase project.
-4. Add packaged extension release build.
-5. Add upgrade/migration checks for IndexedDB.
-6. Add runtime observability and release channel metadata.
-7. Add explicit schedule conflict-resolution UI.
+### Phase 9 — Pilot & production readiness
+1. Connect/create a Supabase development project and apply the migration.
+2. Run RLS/security advisors against the live schema.
+3. Pilot the unpacked extension on real Facebook layouts.
+4. Capture adapter compatibility fixtures from approved test pages.
+5. Add opt-in error telemetry.
+6. Establish beta → stable release promotion rules.
+7. Run a small controlled user pilot before any broader rollout.

@@ -1,14 +1,15 @@
-name: CI
+name: Release
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - feature/**
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
-  validate:
+  release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -19,15 +20,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - name: Package beta extension artifact
+      - name: Package stable extension
         env:
-          RELEASE_CHANNEL: beta
+          RELEASE_CHANNEL: stable
         run: npm run package:extension
-      - uses: actions/upload-artifact@v4
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: autotool-extension-beta
-          path: |
+          files: |
             release/*.zip
             release/*.sha256
             release/*.json
-          if-no-files-found: error
+          generate_release_notes: true

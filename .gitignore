@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 dist-gateway
+release
 *.local
 
 # Editor directories and files
