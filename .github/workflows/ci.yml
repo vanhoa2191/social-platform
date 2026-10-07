@@ -19,6 +19,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Firestore Security Rules tests
+        run: npm run test:firebase-emulator
       - name: Package beta extension artifact
         env:
           RELEASE_CHANNEL: beta
