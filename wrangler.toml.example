@@ -1,0 +1,19 @@
+name = "autotool-ai-gateway"
+main = "dist-gateway/worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+AI_PROVIDER = "mock"
+AI_MODEL = "mock-v1"
+AI_INPUT_USD_PER_M = "0"
+AI_OUTPUT_USD_PER_M = "0"
+
+# Configure secrets with:
+# wrangler secret put GATEWAY_TOKEN
+# wrangler secret put AI_API_KEY
+#
+# Provider options:
+# mock | openai | deepseek | anthropic | gemini
+#
+# Optional:
+# AI_BASE_URL = "https://..."

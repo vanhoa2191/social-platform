@@ -1,0 +1,46 @@
+{
+  "name": "social-platform",
+  "private": true,
+  "version": "0.10.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && node scripts/build-extension.mjs && node scripts/verify-extension.mjs && node scripts/build-gateway.mjs",
+    "build:web": "tsc -b && vite build",
+    "build:extension": "node scripts/build-extension.mjs && node scripts/verify-extension.mjs",
+    "test": "vitest run --exclude **/*.emulator.test.ts",
+    "test:watch": "vitest",
+    "lint": "oxlint",
+    "check": "npm run lint && npm test && npm run build",
+    "preview": "vite preview",
+    "build:gateway": "node scripts/build-gateway.mjs",
+    "package:extension": "node scripts/check-release-readiness.mjs && node scripts/package-extension.mjs && node scripts/verify-release.mjs",
+    "release:extension": "npm run build && npm run package:extension",
+    "test:firestore-rules": "vitest run src/backend/firestore.rules.emulator.test.ts",
+    "test:firebase-emulator": "npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-autotool \"npm run test:firestore-rules\""
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "adm-zip": "^0.6.1",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.14.5",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.3"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.5"
+  }
+}
