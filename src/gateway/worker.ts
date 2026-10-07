@@ -9,12 +9,23 @@ interface Env {
   AI_BASE_URL?: string
   AI_INPUT_USD_PER_M?: string
   AI_OUTPUT_USD_PER_M?: string
+  RATE_LIMIT_PER_MINUTE?: string
+  PROVIDER_TIMEOUT_MS?: string
+  MAX_BODY_BYTES?: string
 }
 
 type DraftShape = {
   text: string
   strategy: 'INSIGHT' | 'QUESTION' | 'CLARIFICATION'
   confidence: number
+}
+
+const rateBuckets = new Map<string, { startedAt: number; count: number }>()
+
+function numberSetting(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
 }
 
 function json(data: unknown, status = 200): Response {
@@ -30,10 +41,39 @@ function json(data: unknown, status = 200): Response {
 }
 
 function requireAuth(request: Request, env: Env): Response | undefined {
-  if (!env.GATEWAY_TOKEN) return undefined
+  if (!env.GATEWAY_TOKEN) {
+    if ((env.AI_PROVIDER || 'mock') !== 'mock') return json({ error: 'Gateway authentication is not configured' }, 503)
+    return undefined
+  }
   const expected = `Bearer ${env.GATEWAY_TOKEN}`
   if (request.headers.get('authorization') !== expected) return json({ error: 'Unauthorized' }, 401)
   return undefined
+}
+
+function rateLimit(request: Request, env: Env): Response | undefined {
+  const max = numberSetting(env.RATE_LIMIT_PER_MINUTE, 30, 1, 300)
+  const now = Date.now()
+  const key = (request.headers.get('cf-connecting-ip') ?? 'unknown') + ':' + (request.headers.get('authorization') ?? 'anonymous')
+  const bucket = rateBuckets.get(key)
+  if (!bucket || now - bucket.startedAt >= 60_000) { rateBuckets.set(key, { startedAt: now, count: 1 }); return undefined }
+  if (bucket.count >= max) return json({ error: 'Rate limit exceeded' }, 429)
+  bucket.count += 1
+  return undefined
+}
+
+async function readJsonBody(request: Request, env: Env): Promise<unknown> {
+  const maxBytes = numberSetting(env.MAX_BODY_BYTES, 16384, 1024, 65536)
+  const text = await request.text()
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Error('Request body too large')
+  return JSON.parse(text)
+}
+
+async function providerFetch(env: Env, input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timer = globalThis.setTimeout(() => controller.abort(), numberSetting(env.PROVIDER_TIMEOUT_MS, 25000, 3000, 45000))
+  try { return await fetch(input, { ...init, signal: controller.signal }) }
+  catch (error) { if (error instanceof Error && error.name === 'AbortError') throw new Error('AI provider timed out'); throw error }
+  finally { globalThis.clearTimeout(timer) }
 }
 
 function extractJson(text: string): DraftShape {
@@ -48,7 +88,7 @@ function extractJson(text: string): DraftShape {
   }
   const confidence = Number(value.confidence)
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error('Invalid confidence')
-  if (typeof value.text !== 'string' || value.text.trim().length < 2) throw new Error('Invalid text')
+  if (typeof value.text !== 'string' || value.text.trim().length < 2 || value.text.trim().length > 1200) throw new Error('Invalid text')
   return { text: value.text.trim(), strategy, confidence }
 }
 
@@ -71,7 +111,7 @@ async function callOpenAiCompatible(env: Env, req: AiGatewayRequest, baseUrl: st
   const model = env.AI_MODEL || 'default-model'
   if (!env.AI_API_KEY) throw new Error('AI_API_KEY is missing')
   const prompt = getPromptTemplate(req.promptVersion)
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const response = await providerFetch(env, `${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.AI_API_KEY}` },
     body: JSON.stringify({
@@ -81,6 +121,7 @@ async function callOpenAiCompatible(env: Env, req: AiGatewayRequest, baseUrl: st
         { role: 'user', content: postPrompt(req) },
       ],
       temperature: 0.6,
+      max_tokens: 300,
       response_format: { type: 'json_object' },
     }),
   })
@@ -102,7 +143,7 @@ async function callAnthropic(env: Env, req: AiGatewayRequest): Promise<AiGateway
   const model = env.AI_MODEL || 'default-model'
   if (!env.AI_API_KEY) throw new Error('AI_API_KEY is missing')
   const prompt = getPromptTemplate(req.promptVersion)
-  const response = await fetch(env.AI_BASE_URL || 'https://api.anthropic.com/v1/messages', {
+  const response = await providerFetch(env, env.AI_BASE_URL || 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -135,13 +176,13 @@ async function callGemini(env: Env, req: AiGatewayRequest): Promise<AiGatewayRes
   if (!env.AI_API_KEY) throw new Error('AI_API_KEY is missing')
   const prompt = getPromptTemplate(req.promptVersion)
   const base = env.AI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models'
-  const response = await fetch(`${base.replace(/\/$/, '')}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.AI_API_KEY)}`, {
+  const response = await providerFetch(env, `${base.replace(/\/$/, '')}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.AI_API_KEY)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: prompt.system }] },
       contents: [{ role: 'user', parts: [{ text: postPrompt(req) }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.6 },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.6, maxOutputTokens: 300 },
     }),
   })
   if (!response.ok) throw new Error(`gemini HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`)
@@ -192,6 +233,11 @@ function validateRequest(value: unknown): AiGatewayRequest {
   const post = root.post
   const promptVersion = root.promptVersion as PromptVersion
   if (!post || typeof post.text !== 'string' || typeof post.id !== 'string') throw new Error('Invalid post')
+  post.text = post.text.trim()
+  if (post.text.length < 2 || post.text.length > 5000 || post.id.length > 200) throw new Error('Invalid post')
+  if (typeof post.author === 'string') post.author = post.author.trim().slice(0, 200)
+  delete post.sourceUrl
+  delete post.permalink
   if (promptVersion !== 'comment-v1' && promptVersion !== 'comment-v2') throw new Error('Invalid promptVersion')
   return { post, promptVersion }
 }
@@ -208,11 +254,14 @@ export default {
     if (url.pathname === '/v1/comment' && request.method === 'POST') {
       const auth = requireAuth(request, env)
       if (auth) return auth
+      const limited = rateLimit(request, env)
+      if (limited) return limited
       try {
-        const body = validateRequest(await request.json())
+        const body = validateRequest(await readJsonBody(request, env))
         return json(await generate(env, body))
       } catch (error) {
-        return json({ error: error instanceof Error ? error.message : 'Gateway error' }, 400)
+        const message = error instanceof Error ? error.message : 'Gateway error'
+        return json({ error: message }, message === 'Request body too large' ? 413 : message === 'AI provider timed out' ? 504 : 400)
       }
     }
     return json({ error: 'Not found' }, 404)

@@ -1,5 +1,5 @@
 export const DB_NAME = 'autotool-runtime'
-export const DB_VERSION = 4
+export const DB_VERSION = 5
 export const JOBS_STORE = 'jobs'
 export const CANDIDATES_STORE = 'candidates'
 export const LOCKS_STORE = 'locks'
@@ -27,6 +27,7 @@ export async function openRuntimeDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const database = request.result
+      const upgradeTx = request.transaction!
       if (!database.objectStoreNames.contains(JOBS_STORE)) {
         const jobs = database.createObjectStore(JOBS_STORE, { keyPath: 'id' })
         jobs.createIndex('dedupeKey', 'dedupeKey', { unique: true })
@@ -39,33 +40,48 @@ export async function openRuntimeDb(): Promise<IDBDatabase> {
         candidates.createIndex('state', 'state')
         candidates.createIndex('updatedAt', 'updatedAt')
       }
-      if (!database.objectStoreNames.contains(LOCKS_STORE)) {
-        database.createObjectStore(LOCKS_STORE, { keyPath: 'key' })
-      }
+      if (!database.objectStoreNames.contains(LOCKS_STORE)) database.createObjectStore(LOCKS_STORE, { keyPath: 'key' })
+
+      let schedules: IDBObjectStore
       if (!database.objectStoreNames.contains(SCHEDULES_STORE)) {
-        const schedules = database.createObjectStore(SCHEDULES_STORE, { keyPath: 'id' })
+        schedules = database.createObjectStore(SCHEDULES_STORE, { keyPath: 'id' })
         schedules.createIndex('nextRunAt', 'nextRunAt')
         schedules.createIndex('enabled', 'enabled')
+      } else schedules = upgradeTx.objectStore(SCHEDULES_STORE)
+
+      const scheduleCursor = schedules.openCursor()
+      scheduleCursor.onsuccess = () => {
+        const cursor = scheduleCursor.result
+        if (!cursor) return
+        const value = cursor.value as Record<string, unknown>
+        const fallback = typeof value.updatedAt === 'number' ? value.updatedAt : Date.now()
+        cursor.update({
+          ...value,
+          definitionRevision: typeof value.definitionRevision === 'number' ? value.definitionRevision : 1,
+          definitionUpdatedAt: typeof value.definitionUpdatedAt === 'number' ? value.definitionUpdatedAt : fallback,
+          runtimeUpdatedAt: typeof value.runtimeUpdatedAt === 'number' ? value.runtimeUpdatedAt : fallback,
+          updatedAt: fallback,
+        })
+        cursor.continue()
       }
+
+      let events: IDBObjectStore
       if (!database.objectStoreNames.contains(EVENTS_STORE)) {
-        const events = database.createObjectStore(EVENTS_STORE, { keyPath: 'id' })
+        events = database.createObjectStore(EVENTS_STORE, { keyPath: 'id' })
         events.createIndex('createdAt', 'createdAt')
         events.createIndex('level', 'level')
-      }
+      } else events = upgradeTx.objectStore(EVENTS_STORE)
+      if (!events.indexNames.contains('createdAtId')) events.createIndex('createdAtId', ['createdAt', 'id'], { unique: true })
+
       const meta = database.objectStoreNames.contains(META_STORE)
-        ? request.transaction!.objectStore(META_STORE)
+        ? upgradeTx.objectStore(META_STORE)
         : database.createObjectStore(META_STORE, { keyPath: 'key' })
-      meta.put({
-        key: 'schema',
-        version: DB_VERSION,
-        upgradedAt: Date.now(),
-      })
+      meta.put({ key: 'schema', version: DB_VERSION, upgradedAt: Date.now() })
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error ?? new Error('Unable to open runtime database'))
   })
 }
-
 
 export interface RuntimeDbInfo {
   name: string
@@ -79,26 +95,16 @@ export async function getRuntimeDbInfo(): Promise<RuntimeDbInfo> {
   const db = await openRuntimeDb()
   let schemaVersion: number | undefined
   let upgradedAt: number | undefined
-
   if (db.objectStoreNames.contains(META_STORE)) {
     const tx = db.transaction(META_STORE, 'readonly')
     const meta = await requestToPromise(
-      tx.objectStore(META_STORE).get('schema') as IDBRequest<
-        { key: 'schema'; version: number; upgradedAt: number } | undefined
-      >,
+      tx.objectStore(META_STORE).get('schema') as IDBRequest<{ key: 'schema'; version: number; upgradedAt: number } | undefined>,
     )
     await transactionDone(tx)
     schemaVersion = meta?.version
     upgradedAt = meta?.upgradedAt
   }
-
-  const info: RuntimeDbInfo = {
-    name: db.name,
-    version: db.version,
-    stores: Array.from(db.objectStoreNames),
-    schemaVersion,
-    upgradedAt,
-  }
+  const info = { name: db.name, version: db.version, stores: Array.from(db.objectStoreNames), schemaVersion, upgradedAt }
   db.close()
   return info
 }

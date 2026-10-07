@@ -10,6 +10,11 @@ export interface RuntimeEvent {
   createdAt: number
 }
 
+export interface RuntimeEventCursor {
+  createdAt: number
+  id: string
+}
+
 export interface RuntimeLock {
   key: string
   owner: string
@@ -35,6 +40,9 @@ export interface ReviewSchedule {
   nextRunAt: number
   lastRunAt?: number
   createdAt: number
+  definitionRevision: number
+  definitionUpdatedAt: number
+  runtimeUpdatedAt: number
   updatedAt: number
 }
 

@@ -1,3 +1,5 @@
+import type { RuntimeEventCursor } from '../runtime/types'
+
 const DEVICE_KEY = 'autotool.backend.deviceKey'
 const EVENT_WATERMARK_KEY = 'autotool.backend.eventWatermark'
 
@@ -10,7 +12,6 @@ async function getValue<T>(key: string): Promise<T | undefined> {
     const result = await chrome.storage.local.get(key)
     return result[key] as T | undefined
   }
-
   try {
     const raw = globalThis.localStorage?.getItem(key)
     return raw ? JSON.parse(raw) as T : undefined
@@ -35,10 +36,13 @@ export async function getOrCreateDeviceKey(): Promise<string> {
   return created
 }
 
-export async function getEventWatermark(): Promise<number> {
-  return (await getValue<number>(EVENT_WATERMARK_KEY)) ?? 0
+export async function getEventWatermark(): Promise<RuntimeEventCursor | undefined> {
+  const current = await getValue<RuntimeEventCursor | number>(EVENT_WATERMARK_KEY)
+  if (typeof current === 'number') return { createdAt: current, id: '\uffff' }
+  if (current && typeof current.createdAt === 'number' && typeof current.id === 'string') return current
+  return undefined
 }
 
-export async function setEventWatermark(value: number): Promise<void> {
+export async function setEventWatermark(value: RuntimeEventCursor): Promise<void> {
   await setValue(EVENT_WATERMARK_KEY, value)
 }

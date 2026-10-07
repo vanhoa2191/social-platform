@@ -33,6 +33,8 @@ export interface ReviewCandidate {
   createdAt: number
   updatedAt: number
   error?: string
+  approvedDraft?: CommentDraft
+  approvedAt?: number
 }
 
 export interface AutomationSafetyState {

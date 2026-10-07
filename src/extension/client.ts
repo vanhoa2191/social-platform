@@ -1,7 +1,7 @@
 import { gatewayOriginPattern } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
-import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
+import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent, RuntimeEventCursor } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
 import type { PilotSettings } from './pilot'
@@ -156,6 +156,13 @@ export function listRuntimeEvents(limit = 100): Promise<ExtensionResponse<Runtim
   return send<RuntimeEvent[]>({ type: 'EVENT_LIST', limit })
 }
 
+export function listRuntimeEventsAfter(
+  cursor?: RuntimeEventCursor,
+  limit = 500,
+): Promise<ExtensionResponse<RuntimeEvent[]>> {
+  return send<RuntimeEvent[]>({ type: 'EVENT_LIST_AFTER', cursor, limit })
+}
+
 export function clearRuntimeEvents(): Promise<ExtensionResponse<{ cleared: true }>> {
   return send<{ cleared: true }>({ type: 'EVENT_CLEAR' })
 }
@@ -168,8 +175,9 @@ export function touchSchedule(scheduleId: string): Promise<ExtensionResponse<Rev
 export function applyRemoteSchedule(
   schedule: ReviewScheduleInput & { id: string },
   revision: number,
+  definitionUpdatedAt?: number,
 ): Promise<ExtensionResponse<ReviewSchedule>> {
-  return send<ReviewSchedule>({ type: 'SCHEDULE_APPLY_REMOTE', schedule, revision })
+  return send<ReviewSchedule>({ type: 'SCHEDULE_APPLY_REMOTE', schedule, revision, definitionUpdatedAt })
 }
 
 

@@ -2,7 +2,7 @@
 
 Campaign-centric Chrome Extension MV3 runtime with optional AI Gateway and Firebase cloud backend.
 
-Current version: **0.10.0-beta**
+Current version: **0.11.0-beta**
 
 ## Architecture
 
@@ -121,7 +121,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.10.0 \
+RELEASE_TAG=v0.11.0 \
 npm run package:extension
 ```
 

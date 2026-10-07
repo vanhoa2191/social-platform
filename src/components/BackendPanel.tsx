@@ -127,7 +127,7 @@ export default function BackendPanel() {
       setSync(result)
       setMessage(
         result.mode === 'connected'
-          ? `Firebase sync xong: ${result.schedulesPushed} lịch và ${result.eventsPushed} event.`
+          ? `Firebase sync xong: ${result.schedulesPushed} push, ${result.schedulesPulled} pull và ${result.eventsPushed} event.`
           : 'Firebase chưa cấu hình. Hệ thống tiếp tục chạy local-only.',
       )
       setStatus('ready')
@@ -240,7 +240,7 @@ export default function BackendPanel() {
           <div className="backend-sync-summary">
             <span>Provider: <b>Firebase</b></span>
             <span>Browser: <b>{sync.browserInstanceId?.slice(0, 8) ?? 'local'}</b></span>
-            <span>Schedules: <b>{sync.schedulesPushed}</b></span>
+            <span>Schedules push: <b>{sync.schedulesPushed}</b></span><span>Schedules pull: <b>{sync.schedulesPulled}</b></span>
             <span>Events: <b>{sync.eventsPushed}</b></span>
             <span>Remote schedules: <b>{sync.remoteSchedules}</b></span>
             <span>Conflicts: <b>{sync.conflicts}</b></span>

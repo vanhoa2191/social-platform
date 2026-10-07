@@ -7,18 +7,18 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
+import type { ReviewSchedule } from '../runtime/types'
 import {
   applyRemoteSchedule,
   getPilotSettings,
-  listRuntimeEvents,
+  listRuntimeEventsAfter,
   listSchedules,
   touchSchedule,
 } from '../extension/client'
-import type { RuntimeEvent } from '../runtime/types'
 import { getFirebaseAuth, getFirestoreDb } from './client'
 import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
 import { resolveScheduleSync } from './syncPolicy'
-import { telemetryConsentCutoff, toTelemetryEventRecord } from './telemetry'
+import { eventCursor, telemetryStartCursor, toTelemetryEventRecord } from './telemetry'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
 
 function extensionRuntime(): boolean {
@@ -26,21 +26,71 @@ function extensionRuntime(): boolean {
 }
 
 async function getAuthModule() {
-  return extensionRuntime()
-    ? import('firebase/auth/web-extension')
-    : import('firebase/auth')
+  return extensionRuntime() ? import('firebase/auth/web-extension') : import('firebase/auth')
 }
 
-async function requireSession(): Promise<{
-  db: NonNullable<ReturnType<typeof getFirestoreDb>>
-  user: User
-}> {
+async function requireSession(): Promise<{ db: NonNullable<ReturnType<typeof getFirestoreDb>>; user: User }> {
   const [auth, db] = await Promise.all([getFirebaseAuth(), Promise.resolve(getFirestoreDb())])
   if (!auth || !db) throw new Error('Firebase backend chưa được cấu hình.')
   await auth.authStateReady()
   const user = auth.currentUser
   if (!user) throw new Error('Hãy đăng nhập Firebase trước khi đồng bộ.')
   return { db, user }
+}
+
+function toRemoteSchedule(schedule: ReviewSchedule, browserInstanceId: string, syncedAt: string): RemoteScheduleRecord {
+  return {
+    id: schedule.id,
+    localScheduleId: schedule.id,
+    browserInstanceId,
+    name: schedule.name,
+    enabled: schedule.enabled,
+    intervalMinutes: schedule.intervalMinutes,
+    maxPosts: schedule.maxPosts,
+    startHour: schedule.startHour,
+    endHour: schedule.endHour,
+    accountContextKey: schedule.accountBinding?.key ?? null,
+    accountLabel: schedule.accountBinding?.label ?? null,
+    revision: Math.max(1, Number(schedule.definitionRevision ?? 1)),
+    definitionUpdatedAt: Number(schedule.definitionUpdatedAt ?? schedule.updatedAt ?? Date.now()),
+    lastSyncedAt: syncedAt,
+  }
+}
+
+function normalizeRemoteSchedule(id: string, value: Record<string, unknown>): RemoteScheduleRecord {
+  return {
+    id,
+    localScheduleId: typeof value.localScheduleId === 'string' ? value.localScheduleId : id,
+    browserInstanceId: typeof value.browserInstanceId === 'string' ? value.browserInstanceId : null,
+    name: typeof value.name === 'string' ? value.name : 'Lịch quét Facebook',
+    enabled: Boolean(value.enabled),
+    intervalMinutes: Number(value.intervalMinutes ?? 60),
+    maxPosts: Number(value.maxPosts ?? 5),
+    startHour: Number(value.startHour ?? 8),
+    endHour: Number(value.endHour ?? 22),
+    accountContextKey: typeof value.accountContextKey === 'string' ? value.accountContextKey : null,
+    accountLabel: typeof value.accountLabel === 'string' ? value.accountLabel : null,
+    revision: Math.max(1, Number(value.revision ?? 1)),
+    definitionUpdatedAt: Number(value.definitionUpdatedAt ?? Date.now()),
+    lastSyncedAt: typeof value.lastSyncedAt === 'string' ? value.lastSyncedAt : new Date(0).toISOString(),
+  }
+}
+
+async function applyRemoteRow(row: RemoteScheduleRecord): Promise<void> {
+  const applied = await applyRemoteSchedule({
+    id: row.localScheduleId,
+    name: row.name,
+    enabled: row.enabled,
+    intervalMinutes: row.intervalMinutes,
+    maxPosts: row.maxPosts,
+    startHour: row.startHour,
+    endHour: row.endHour,
+    accountBinding: row.accountContextKey ? {
+      key: row.accountContextKey,
+      label: row.accountLabel ?? 'Facebook account',
+    } : undefined,
+  }, row.revision, row.definitionUpdatedAt)
+  if (!applied.ok) throw new Error(applied.error)
 }
 
 export async function registerBrowserInstance(extensionVersion: string): Promise<string> {
@@ -52,16 +102,9 @@ export async function registerBrowserInstance(extensionVersion: string): Promise
     name: extensionRuntime() ? 'Chrome Extension' : 'Web Preview',
     extensionVersion,
     lastSeenAt: new Date().toISOString(),
-    metadata: {
-      runtime: extensionRuntime() ? 'extension' : 'web-preview',
-    },
+    metadata: { runtime: extensionRuntime() ? 'extension' : 'web-preview' },
   }
-
-  await setDoc(
-    doc(db, 'users', user.uid, 'browserInstances', deviceKey),
-    payload,
-    { merge: true },
-  )
+  await setDoc(doc(db, 'users', user.uid, 'browserInstances', deviceKey), payload, { merge: true })
   return deviceKey
 }
 
@@ -72,6 +115,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
       mode: 'local-only',
       provider: 'firebase',
       schedulesPushed: 0,
+      schedulesPulled: 0,
       eventsPushed: 0,
       remoteSchedules: 0,
       conflicts: 0,
@@ -86,61 +130,37 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   const schedulesResult = await listSchedules()
   if (!schedulesResult.ok) throw new Error(schedulesResult.error)
 
-  const scheduleRows: RemoteScheduleRecord[] = schedulesResult.data.map((schedule) => ({
-    id: schedule.id,
-    localScheduleId: schedule.id,
-    browserInstanceId,
-    name: schedule.name,
-    enabled: schedule.enabled,
-    intervalMinutes: schedule.intervalMinutes,
-    maxPosts: schedule.maxPosts,
-    startHour: schedule.startHour,
-    endHour: schedule.endHour,
-    accountContextKey: schedule.accountBinding?.key ?? null,
-    accountLabel: schedule.accountBinding?.label ?? null,
-    revision: schedule.updatedAt,
-    lastSyncedAt: new Date().toISOString(),
-  }))
-
+  const syncedAt = new Date().toISOString()
+  const scheduleRows = schedulesResult.data.map((schedule) => toRemoteSchedule(schedule, browserInstanceId, syncedAt))
   const schedulesCollection = collection(db, 'users', user.uid, 'schedules')
   const remoteSnapshot = await getDocs(schedulesCollection)
-  const remoteRows = remoteSnapshot.docs.map((item) => ({
-    localScheduleId: item.id,
-    revision: Number(item.data().revision ?? 0),
-  }))
-
+  const remoteRows = remoteSnapshot.docs.map((item) => normalizeRemoteSchedule(item.id, item.data()))
   const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
-  const rowsToPush = syncDecision.rowsToPush
 
-  if (rowsToPush.length) {
+  for (const row of syncDecision.rowsToPull) await applyRemoteRow(row)
+
+  if (syncDecision.rowsToPush.length) {
     const batch = writeBatch(db)
-    for (const row of rowsToPush) {
-      batch.set(
-        doc(db, 'users', user.uid, 'schedules', row.localScheduleId),
-        row,
-        { merge: true },
-      )
+    for (const row of syncDecision.rowsToPush) {
+      batch.set(doc(db, 'users', user.uid, 'schedules', row.localScheduleId), {
+        ...row,
+        browserInstanceId,
+        lastSyncedAt: syncedAt,
+      }, { merge: true })
     }
     await batch.commit()
   }
 
   const pilotResult = await getPilotSettings()
   const telemetryEnabled = pilotResult.ok && pilotResult.data.telemetryOptIn
-  let unsyncedEvents: RuntimeEvent[] = []
+  let eventsPushed = 0
 
   if (telemetryEnabled && pilotResult.ok) {
     const watermark = await getEventWatermark()
-    const consentCutoff = telemetryConsentCutoff(
-      watermark,
-      pilotResult.data.telemetryOptInAt,
-    )
-    const eventResult = await listRuntimeEvents(500)
+    const startCursor = telemetryStartCursor(watermark, pilotResult.data.telemetryOptInAt)
+    const eventResult = await listRuntimeEventsAfter(startCursor, 500)
     if (!eventResult.ok) throw new Error(eventResult.error)
-
-    unsyncedEvents = eventResult.data
-      .filter((event) => event.createdAt > consentCutoff)
-      .sort((a, b) => a.createdAt - b.createdAt)
-
+    const unsyncedEvents = eventResult.data
     if (unsyncedEvents.length) {
       const batch = writeBatch(db)
       for (const event of unsyncedEvents) {
@@ -151,7 +171,8 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
         )
       }
       await batch.commit()
-      await setEventWatermark(unsyncedEvents[unsyncedEvents.length - 1].createdAt)
+      await setEventWatermark(eventCursor(unsyncedEvents[unsyncedEvents.length - 1]))
+      eventsPushed = unsyncedEvents.length
     }
   }
 
@@ -159,8 +180,9 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     mode: 'connected',
     provider: 'firebase',
     browserInstanceId,
-    schedulesPushed: rowsToPush.length,
-    eventsPushed: unsyncedEvents.length,
+    schedulesPushed: syncDecision.rowsToPush.length,
+    schedulesPulled: syncDecision.rowsToPull.length,
+    eventsPushed,
     remoteSchedules: remoteSnapshot.size,
     conflicts: syncDecision.conflicts.length,
     conflictScheduleIds: syncDecision.conflicts,
@@ -176,14 +198,9 @@ export async function getCurrentUserEmail(): Promise<string | undefined> {
   return auth.currentUser?.email ?? undefined
 }
 
-export async function subscribeBackendAuth(
-  listener: (email: string | undefined) => void,
-): Promise<() => void> {
+export async function subscribeBackendAuth(listener: (email: string | undefined) => void): Promise<() => void> {
   const auth = await getFirebaseAuth()
-  if (!auth) {
-    listener(undefined)
-    return () => undefined
-  }
+  if (!auth) { listener(undefined); return () => undefined }
   const { onAuthStateChanged } = await getAuthModule()
   return onAuthStateChanged(auth, (user) => listener(user?.email ?? undefined))
 }
@@ -216,40 +233,16 @@ export async function signOutBackend(): Promise<void> {
   await signOut(auth)
 }
 
-export async function resolveScheduleConflictKeepLocal(
-  scheduleId: string,
-  extensionVersion: string,
-): Promise<SyncSummary> {
+export async function resolveScheduleConflictKeepLocal(scheduleId: string, extensionVersion: string): Promise<SyncSummary> {
   const touched = await touchSchedule(scheduleId)
   if (!touched.ok) throw new Error(touched.error)
   return syncRuntimeData(extensionVersion)
 }
 
-export async function resolveScheduleConflictUseCloud(
-  scheduleId: string,
-  extensionVersion: string,
-): Promise<SyncSummary> {
+export async function resolveScheduleConflictUseCloud(scheduleId: string, extensionVersion: string): Promise<SyncSummary> {
   const { db, user } = await requireSession()
   const snapshot = await getDoc(doc(db, 'users', user.uid, 'schedules', scheduleId))
   if (!snapshot.exists()) throw new Error('Không tìm thấy lịch cloud.')
-
-  const data = snapshot.data() as RemoteScheduleRecord
-  const applied = await applyRemoteSchedule({
-    id: data.localScheduleId,
-    name: data.name,
-    enabled: data.enabled,
-    intervalMinutes: data.intervalMinutes,
-    maxPosts: data.maxPosts,
-    startHour: data.startHour,
-    endHour: data.endHour,
-    accountBinding: data.accountContextKey
-      ? {
-          key: data.accountContextKey,
-          label: data.accountLabel ?? 'Facebook account',
-        }
-      : undefined,
-  }, Number(data.revision))
-
-  if (!applied.ok) throw new Error(applied.error)
+  await applyRemoteRow(normalizeRemoteSchedule(snapshot.id, snapshot.data()))
   return syncRuntimeData(extensionVersion)
 }

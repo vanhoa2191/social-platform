@@ -89,7 +89,7 @@
 
 ## Current product version
 
-0.10.0-beta
+0.11.0-beta
 
 ## Local validation
 
