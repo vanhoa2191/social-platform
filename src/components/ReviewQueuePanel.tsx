@@ -8,9 +8,11 @@ import {
   isExtensionRuntime,
   listReviewCandidates,
   prepareApprovedComment,
+  regenerateReviewCandidate,
   rejectReviewCandidate,
   retryReviewCandidate,
   setEmergencyStop,
+  updateReviewDraft,
 } from '../extension/client'
 
 const stateLabel: Record<ReviewCandidate['state'], string> = {
@@ -29,9 +31,16 @@ export default function ReviewQueuePanel() {
   const [emergencyStop, setEmergencyStopValue] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
 
   const actionable = useMemo(
     () => items.filter((item) => !['REJECTED', 'PREPARED'].includes(item.state)),
+    [items],
+  )
+
+  const totalEstimatedCost = useMemo(
+    () => items.reduce((sum, item) => sum + (item.draft.usage?.estimatedCostUsd ?? 0), 0),
     [items],
   )
 
@@ -48,32 +57,60 @@ export default function ReviewQueuePanel() {
     const result = await createReviewCandidates(10)
     if (result.ok) {
       setItems(result.data)
-      setNotice(`Đã tạo ${result.data.length} ứng viên để duyệt. AI hiện dùng local mock provider.`)
+      setNotice(`Đã tạo ${result.data.length} ứng viên để duyệt.`)
     } else {
       setNotice(result.error)
     }
     setBusy(null)
   }
 
-  async function action(candidateId: string, kind: 'approve' | 'reject' | 'prepare' | 'retry') {
+  async function action(
+    candidateId: string,
+    kind: 'approve' | 'reject' | 'prepare' | 'retry' | 'regenerate',
+  ) {
     setBusy(candidateId + kind)
     setNotice('')
+
     const result = kind === 'approve'
       ? await approveReviewCandidate(candidateId)
       : kind === 'reject'
         ? await rejectReviewCandidate(candidateId)
         : kind === 'retry'
           ? await retryReviewCandidate(candidateId)
-          : await prepareApprovedComment(candidateId)
+          : kind === 'regenerate'
+            ? await regenerateReviewCandidate(candidateId)
+            : await prepareApprovedComment(candidateId)
 
     if (result.ok) {
       await refresh()
       if (kind === 'prepare') {
         setNotice('Đã điền comment vào Facebook. Hãy kiểm tra nội dung trên Facebook và tự bấm Gửi.')
+      } else if (kind === 'regenerate') {
+        setNotice('Đã tạo lại nháp AI.')
       }
     } else {
       setNotice(result.error)
       await refresh()
+    }
+    setBusy(null)
+  }
+
+  function startEditing(item: ReviewCandidate) {
+    setEditingId(item.id)
+    setEditingText(item.draft.text)
+  }
+
+  async function saveEditedDraft(candidateId: string) {
+    setBusy(candidateId + 'edit')
+    setNotice('')
+    const result = await updateReviewDraft(candidateId, editingText)
+    if (result.ok) {
+      setEditingId(null)
+      setEditingText('')
+      await refresh()
+      setNotice('Đã lưu nội dung nháp đã chỉnh sửa.')
+    } else {
+      setNotice(result.error)
     }
     setBusy(null)
   }
@@ -83,9 +120,11 @@ export default function ReviewQueuePanel() {
     const result = await setEmergencyStop(!emergencyStop)
     if (result.ok) {
       setEmergencyStopValue(result.data.emergencyStop)
-      setNotice(result.data.emergencyStop
-        ? 'Emergency Stop đã bật. Automation sẽ không chạy thêm tác vụ mới.'
-        : 'Emergency Stop đã tắt.')
+      setNotice(
+        result.data.emergencyStop
+          ? 'Emergency Stop đã bật. Automation sẽ không chạy thêm tác vụ mới.'
+          : 'Emergency Stop đã tắt.',
+      )
     } else {
       setNotice(result.error)
     }
@@ -107,11 +146,13 @@ export default function ReviewQueuePanel() {
   useEffect(() => {
     if (!extensionMode) return
     let cancelled = false
+
     void Promise.all([listReviewCandidates(), getSafetyState()]).then(([reviews, safety]) => {
       if (cancelled) return
       if (reviews.ok) setItems(reviews.data)
       if (safety.ok) setEmergencyStopValue(safety.data.emergencyStop)
     })
+
     return () => {
       cancelled = true
     }
@@ -122,14 +163,28 @@ export default function ReviewQueuePanel() {
       <div className="panel-head">
         <div>
           <h3>AI Review Queue</h3>
-          <p>Quét bài → tạo nháp → duyệt thủ công → điền vào Facebook. Bản MVP chưa tự bấm Gửi.</p>
+          <p>Quét bài → tạo nháp → sửa/regenerate → duyệt → điền vào Facebook. Tool không tự bấm Gửi.</p>
         </div>
         <div className="review-actions">
-          <button className={emergencyStop ? 'danger-btn active' : 'danger-btn'} disabled={!extensionMode || busy === 'stop'} onClick={() => void toggleEmergencyStop()}>
+          <button
+            className={emergencyStop ? 'danger-btn active' : 'danger-btn'}
+            disabled={!extensionMode || busy === 'stop'}
+            onClick={() => void toggleEmergencyStop()}
+          >
             {emergencyStop ? '■ Emergency Stop ON' : 'Emergency Stop'}
           </button>
-          <button className="secondary" disabled={!extensionMode || busy === 'clear'} onClick={() => void clearAll()}>Xóa queue</button>
-          <button className="primary" disabled={!extensionMode || emergencyStop || busy === 'scan'} onClick={() => void scanAndDraft()}>
+          <button
+            className="secondary"
+            disabled={!extensionMode || busy === 'clear'}
+            onClick={() => void clearAll()}
+          >
+            Xóa queue
+          </button>
+          <button
+            className="primary"
+            disabled={!extensionMode || emergencyStop || busy === 'scan'}
+            onClick={() => void scanAndDraft()}
+          >
             {busy === 'scan' ? 'Đang quét…' : '✦ Quét & tạo nháp'}
           </button>
         </div>
@@ -157,7 +212,9 @@ export default function ReviewQueuePanel() {
             <span><strong>{items.length}</strong> tổng ứng viên</span>
             <span><strong>{actionable.length}</strong> cần xử lý</span>
             <span><strong>{items.filter((item) => item.state === 'PREPARED').length}</strong> đã điền</span>
+            <span><strong>${totalEstimatedCost.toFixed(4)}</strong> AI cost ước tính</span>
           </div>
+
           <div className="review-list">
             {items.map((item) => (
               <article className={'review-card state-' + item.state.toLowerCase()} key={item.id}>
@@ -168,37 +225,143 @@ export default function ReviewQueuePanel() {
                   </div>
                   <span className={'review-state ' + item.state.toLowerCase()}>{stateLabel[item.state]}</span>
                 </div>
-                <p className="review-post">{item.post.text.slice(0, 360)}{item.post.text.length > 360 ? '…' : ''}</p>
+
+                <p className="review-post">
+                  {item.post.text.slice(0, 360)}
+                  {item.post.text.length > 360 ? '…' : ''}
+                </p>
+
                 <div className="review-draft">
                   <div>
-                    <b>✦ Nháp AI · {item.draft.strategy}</b>
-                    <span>{Math.round(item.draft.confidence * 100)}% confidence · {item.draft.provider}</span>
+                    <b>✦ Nháp AI · {item.draft.strategy}{item.draft.edited ? ' · đã sửa' : ''}</b>
+                    <span>
+                      {Math.round(item.draft.confidence * 100)}% · {item.draft.provider}
+                      {item.draft.model ? ` / ${item.draft.model}` : ''}
+                      {item.draft.promptVersion ? ` · ${item.draft.promptVersion}` : ''}
+                    </span>
                   </div>
-                  <p>{item.draft.text}</p>
+
+                  {editingId === item.id ? (
+                    <textarea
+                      className="review-editor"
+                      value={editingText}
+                      maxLength={1200}
+                      onChange={(event) => setEditingText(event.target.value)}
+                    />
+                  ) : (
+                    <p>{item.draft.text}</p>
+                  )}
+
+                  {item.draft.usage && (
+                    <div className="usage-line">
+                      <span>
+                        {item.draft.usage.inputTokens} input · {item.draft.usage.outputTokens} output tokens
+                      </span>
+                      <strong>${item.draft.usage.estimatedCostUsd.toFixed(6)}</strong>
+                    </div>
+                  )}
                 </div>
+
                 {item.error && <div className="review-error">{item.error}</div>}
+
                 <div className="review-card-actions">
                   {item.state === 'READY_FOR_REVIEW' && (
                     <>
-                      <button className="secondary" disabled={Boolean(busy)} onClick={() => void action(item.id, 'reject')}>Bỏ qua</button>
-                      <button className="primary" disabled={Boolean(busy) || emergencyStop} onClick={() => void action(item.id, 'approve')}>✓ Duyệt</button>
+                      {editingId === item.id ? (
+                        <>
+                          <button
+                            className="secondary"
+                            disabled={Boolean(busy)}
+                            onClick={() => {
+                              setEditingId(null)
+                              setEditingText('')
+                            }}
+                          >
+                            Hủy sửa
+                          </button>
+                          <button
+                            className="primary"
+                            disabled={Boolean(busy) || editingText.trim().length < 2}
+                            onClick={() => void saveEditedDraft(item.id)}
+                          >
+                            Lưu nháp
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="secondary"
+                            disabled={Boolean(busy) || emergencyStop}
+                            onClick={() => void action(item.id, 'regenerate')}
+                          >
+                            ↻ Tạo lại
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={Boolean(busy)}
+                            onClick={() => startEditing(item)}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={Boolean(busy)}
+                            onClick={() => void action(item.id, 'reject')}
+                          >
+                            Bỏ qua
+                          </button>
+                          <button
+                            className="primary"
+                            disabled={Boolean(busy) || emergencyStop}
+                            onClick={() => void action(item.id, 'approve')}
+                          >
+                            ✓ Duyệt
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
+
                   {item.state === 'APPROVED' && (
                     <>
-                      <button className="secondary" disabled={Boolean(busy)} onClick={() => void action(item.id, 'reject')}>Hủy duyệt</button>
-                      <button className="primary" disabled={Boolean(busy) || emergencyStop} onClick={() => void action(item.id, 'prepare')}>
+                      <button
+                        className="secondary"
+                        disabled={Boolean(busy)}
+                        onClick={() => void action(item.id, 'reject')}
+                      >
+                        Hủy duyệt
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={Boolean(busy) || emergencyStop}
+                        onClick={() => void action(item.id, 'prepare')}
+                      >
                         Điền vào Facebook
                       </button>
                     </>
                   )}
-                  {item.state === 'PREPARED' && <span className="prepared-hint">✓ Đã điền. Kiểm tra trên Facebook và tự bấm Gửi.</span>}
+
+                  {item.state === 'PREPARED' && (
+                    <span className="prepared-hint">
+                      ✓ Đã điền. Kiểm tra trên Facebook và tự bấm Gửi.
+                    </span>
+                  )}
+
                   {item.state === 'FAILED' && (
                     <>
-                      <span className="failed-hint">Tác vụ lỗi. Có thể đưa lại về hàng đợi duyệt để thử lại.</span>
-                      <button className="secondary" disabled={Boolean(busy)} onClick={() => void action(item.id, 'retry')}>Thử lại</button>
+                      <span className="failed-hint">
+                        Tác vụ lỗi. Có thể đưa lại về hàng đợi duyệt để thử lại.
+                      </span>
+                      <button
+                        className="secondary"
+                        disabled={Boolean(busy)}
+                        onClick={() => void action(item.id, 'retry')}
+                      >
+                        Thử lại
+                      </button>
                     </>
                   )}
+
                   {item.state === 'REJECTED' && <span className="muted-hint">Đã bỏ qua.</span>}
                 </div>
               </article>

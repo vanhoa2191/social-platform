@@ -13,7 +13,15 @@ export interface CommentDraft {
   text: string
   strategy: 'INSIGHT' | 'QUESTION' | 'CLARIFICATION'
   confidence: number
-  provider: 'local-mock'
+  provider: string
+  model?: string
+  promptVersion?: string
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    estimatedCostUsd: number
+  }
+  edited?: boolean
   generatedAt: number
 }
 

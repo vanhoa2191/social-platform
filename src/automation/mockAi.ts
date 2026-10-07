@@ -26,6 +26,9 @@ export function createMockDraft(post: FeedPost): CommentDraft {
     strategy: useQuestion ? 'INSIGHT' : 'QUESTION',
     confidence: 0.82,
     provider: 'local-mock',
+    model: 'mock-v1',
+    promptVersion: 'comment-v2',
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 },
     generatedAt: Date.now(),
   }
 }

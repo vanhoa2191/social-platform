@@ -1,11 +1,13 @@
-import { localMockAiProvider } from '../automation/aiProvider'
+import { localMockAiProvider, type AiDraftProvider } from '../automation/aiProvider'
+import { createGatewayAiProvider, normalizeGatewayUrl } from '../ai/gatewayProvider'
+import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { CandidateState, ReviewCandidate } from '../automation/model'
 import { getCandidate, listCandidates, patchCandidate, upsertCandidate, clearCandidates } from '../automation/reviewStore'
 import { assertTransition } from '../automation/stateMachine'
 import { AutomationError, classifyAutomationError } from '../automation/errors'
 import { isSupportedFacebookUrl } from '../core/helpers'
 import { clearQueue, countJobs, enqueueJob, listJobs, updateJob } from './queue'
-import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount } from './storage'
+import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken } from './storage'
 import type {
   BackgroundRequest,
   ContentRequest,
@@ -14,6 +16,7 @@ import type {
   PrepareCommentResult,
   QueueJob,
   RuntimeStatus,
+  AiSettingsView,
 } from './types'
 
 const QUEUE_ALARM = 'autotool.queue.tick'
@@ -29,6 +32,39 @@ async function sendToContent<T>(tabId: number, request: ContentRequest): Promise
     return await chrome.tabs.sendMessage(tabId, request) as ExtensionResponse<T>
   } catch {
     return { ok: false, error: 'Content script chưa sẵn sàng trên tab này. Hãy tải lại trang rồi thử lại.' }
+  }
+}
+
+async function getAiProvider(): Promise<AiDraftProvider> {
+  const settings = await getAiGatewaySettings()
+  if (settings.mode === 'local') return localMockAiProvider
+  return createGatewayAiProvider(settings, await getAiGatewayToken())
+}
+
+async function getAiSettingsView(): Promise<AiSettingsView> {
+  const [settings, token] = await Promise.all([getAiGatewaySettings(), getAiGatewayToken()])
+  return { settings, hasToken: Boolean(token) }
+}
+
+async function testGatewayConnection(): Promise<AiHealthResponse> {
+  const settings = await getAiGatewaySettings()
+  if (settings.mode !== 'gateway') throw new Error('AI mode hiện tại đang là local.')
+  const token = await getAiGatewayToken()
+  const controller = new AbortController()
+  const timeout = globalThis.setTimeout(() => controller.abort(), settings.timeoutMs)
+  try {
+    const response = await fetch(`${normalizeGatewayUrl(settings.gatewayUrl)}/health`, {
+      headers: token ? { authorization: `Bearer ${token}` } : undefined,
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`AI gateway HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`)
+    const data = await response.json() as Partial<AiHealthResponse>
+    if (!data.ok || typeof data.provider !== 'string' || typeof data.model !== 'string' || typeof data.version !== 'string') {
+      throw new Error('AI gateway health response không hợp lệ.')
+    }
+    return data as AiHealthResponse
+  } finally {
+    globalThis.clearTimeout(timeout)
   }
 }
 
@@ -89,7 +125,7 @@ async function createReviewCandidates(limit = 10): Promise<ReviewCandidate[]> {
     const candidate: ReviewCandidate = {
       id,
       post,
-      draft: await localMockAiProvider.generateComment(post),
+      draft: await (await getAiProvider()).generateComment(post),
       state: existing?.state === 'APPROVED' ? 'APPROVED' : 'READY_FOR_REVIEW',
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -99,6 +135,33 @@ async function createReviewCandidates(limit = 10): Promise<ReviewCandidate[]> {
     created.push(candidate)
   }
   return created
+}
+
+async function regenerateCandidate(id: string): Promise<ReviewCandidate> {
+  await ensureAutomationAllowed()
+  const candidate = await getCandidate(id)
+  if (!candidate) throw new Error('Không tìm thấy review candidate.')
+  if (candidate.state !== 'READY_FOR_REVIEW' && candidate.state !== 'FAILED') {
+    throw new Error(`Chỉ regenerate candidate đang chờ duyệt hoặc bị lỗi, hiện tại: ${candidate.state}.`)
+  }
+  const draft = await (await getAiProvider()).generateComment(candidate.post)
+  const updated = await patchCandidate(id, { state: 'READY_FOR_REVIEW', draft, error: undefined })
+  if (!updated) throw new Error('Không thể lưu nháp mới.')
+  return updated
+}
+
+async function updateCandidateDraft(id: string, text: string): Promise<ReviewCandidate> {
+  const candidate = await getCandidate(id)
+  if (!candidate) throw new Error('Không tìm thấy review candidate.')
+  if (candidate.state !== 'READY_FOR_REVIEW') throw new Error('Chỉ chỉnh sửa nháp khi candidate đang chờ duyệt.')
+  const normalized = text.trim()
+  if (normalized.length < 2 || normalized.length > 1200) throw new Error('Nội dung nháp phải từ 2 đến 1200 ký tự.')
+  const updated = await patchCandidate(id, {
+    draft: { ...candidate.draft, text: normalized, edited: true, generatedAt: Date.now() },
+    error: undefined,
+  })
+  if (!updated) throw new Error('Không thể lưu nội dung chỉnh sửa.')
+  return updated
 }
 
 async function transitionCandidate(id: string, nextState: CandidateState): Promise<ReviewCandidate> {
@@ -246,6 +309,16 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         sendResponse(response)
         return
       }
+      if (message.type === 'REVIEW_REGENERATE') {
+        const response: ExtensionResponse<ReviewCandidate> = { ok: true, data: await regenerateCandidate(message.candidateId) }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'REVIEW_UPDATE_DRAFT') {
+        const response: ExtensionResponse<ReviewCandidate> = { ok: true, data: await updateCandidateDraft(message.candidateId, message.text) }
+        sendResponse(response)
+        return
+      }
       if (message.type === 'REVIEW_CLEAR') {
         await clearCandidates()
         sendResponse({ ok: true, data: { cleared: true } })
@@ -257,6 +330,28 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
       }
       if (message.type === 'SET_EMERGENCY_STOP') {
         sendResponse({ ok: true, data: await setEmergencyStop(message.enabled) })
+        return
+      }
+      if (message.type === 'AI_SETTINGS_GET') {
+        const response: ExtensionResponse<AiSettingsView> = { ok: true, data: await getAiSettingsView() }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'AI_SETTINGS_SET') {
+        const settings: AiGatewaySettings = {
+          ...message.settings,
+          gatewayUrl: normalizeGatewayUrl(message.settings.gatewayUrl),
+          timeoutMs: Math.max(3_000, Math.min(60_000, Number(message.settings.timeoutMs) || 20_000)),
+        }
+        await saveAiGatewaySettings(settings)
+        if (message.token !== undefined) await setAiGatewayToken(message.token)
+        const response: ExtensionResponse<AiSettingsView> = { ok: true, data: await getAiSettingsView() }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'AI_GATEWAY_TEST') {
+        const response: ExtensionResponse<AiHealthResponse> = { ok: true, data: await testGatewayConnection() }
+        sendResponse(response)
         return
       }
       if (message.type === 'QUEUE_LIST') {

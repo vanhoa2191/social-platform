@@ -1,18 +1,19 @@
 {
   "name": "social-platform",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/build-extension.mjs && node scripts/verify-extension.mjs",
+    "build": "tsc -b && vite build && node scripts/build-extension.mjs && node scripts/verify-extension.mjs && node scripts/build-gateway.mjs",
     "build:web": "tsc -b && vite build",
     "build:extension": "node scripts/build-extension.mjs && node scripts/verify-extension.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint",
     "check": "npm run lint && npm test && npm run build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:gateway": "node scripts/build-gateway.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

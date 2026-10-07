@@ -1,8 +1,8 @@
 # Social Platform / AutoTool v2
 
-Campaign-centric UI and Chrome Extension MV3 runtime for a controlled social workflow system.
+Campaign-centric UI, Chrome Extension MV3 runtime and optional server-side AI Gateway.
 
-Current version: **0.2.0**
+Current version: **0.3.0**
 
 ## Implemented
 
@@ -10,12 +10,11 @@ Current version: **0.2.0**
 - dashboard
 - campaign management and 5-step wizard
 - accounts & profiles
-- AI profiles and prompt UI
+- AI profiles
 - content library
 - scheduler
-- queue
-- audit logs
-- analytics
+- queue/review UI
+- logs and analytics shell
 - settings
 
 ### Chrome runtime
@@ -23,21 +22,29 @@ Current version: **0.2.0**
 - background service worker
 - Facebook content script
 - typed runtime messaging
-- IndexedDB queue and review candidates
+- IndexedDB queue/review storage
 - chrome.storage settings
-- runtime status
 - Emergency Stop
 - session action limit
+- optional gateway origin permission
 
-### Automation MVP
+### Controlled automation
 - scan visible Facebook posts
-- create structured local AI drafts
-- review / approve / reject / retry
-- prepare an approved comment in the Facebook composer
-- verify that the approved text was inserted
+- create AI drafts
+- edit/regenerate/reject/approve drafts
+- prepare approved text in the Facebook composer
+- verify inserted text
 - user manually clicks **Gửi**
 
-The MVP intentionally does **not** auto-submit comments.
+### AI Gateway
+- local mock mode
+- Cloudflare Worker bundle
+- OpenAI-compatible / DeepSeek / Anthropic / Gemini provider adapters
+- server-side API keys
+- prompt versions
+- JSON validation
+- health endpoint
+- token/cost metadata
 
 ## Development
 
@@ -46,37 +53,36 @@ npm install
 npm run dev
 ```
 
-## Validate everything
+## Validate
 
 ```bash
 npm run check
 ```
 
-This runs lint, unit tests, the web build, extension runtime bundling and manifest verification.
+This runs lint, unit tests, the dashboard build, extension runtime bundling/verification and AI gateway bundling.
 
-## Test as a Chrome Extension
+## Build Chrome Extension
 
 ```bash
 npm run build
 ```
 
-Then:
+Load `dist/` from `chrome://extensions` using **Load unpacked**.
 
-1. open `chrome://extensions`
-2. enable Developer mode
-3. choose **Load unpacked**
-4. select `dist/`
-5. click the AutoTool toolbar icon
-6. open Facebook in another tab
-7. use **Browser Runtime** to test scanning
-8. open **Hàng đợi & Duyệt AI**
-9. choose **Quét & tạo nháp**
-10. approve a draft and choose **Điền vào Facebook**
-11. review it in Facebook and manually submit
+## Build AI Gateway
 
-## Documentation
+```bash
+npm run build:gateway
+```
+
+The Worker bundle is created at `dist-gateway/worker.js`. See `wrangler.toml.example` and `docs/AI_GATEWAY.md`.
+
+## Docs
 
 - `docs/PLAN.md`
 - `docs/STATUS.md`
 - `docs/EXTENSION.md`
 - `docs/AUTOMATION_MVP.md`
+- `docs/AI_GATEWAY.md`
+
+The current product intentionally keeps final social-platform submission under user control.

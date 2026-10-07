@@ -1,3 +1,4 @@
+import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
 
 export type JobState =
@@ -69,6 +70,11 @@ export interface PrepareCommentResult {
   composerText: string
 }
 
+export interface AiSettingsView {
+  settings: AiGatewaySettings
+  hasToken: boolean
+}
+
 export type BackgroundRequest =
   | { type: 'PING' }
   | { type: 'GET_RUNTIME_STATUS' }
@@ -79,9 +85,14 @@ export type BackgroundRequest =
   | { type: 'REVIEW_REJECT'; candidateId: string }
   | { type: 'REVIEW_PREPARE'; candidateId: string }
   | { type: 'REVIEW_RETRY'; candidateId: string }
+  | { type: 'REVIEW_REGENERATE'; candidateId: string }
+  | { type: 'REVIEW_UPDATE_DRAFT'; candidateId: string; text: string }
   | { type: 'REVIEW_CLEAR' }
   | { type: 'GET_SAFETY_STATE' }
   | { type: 'SET_EMERGENCY_STOP'; enabled: boolean }
+  | { type: 'AI_SETTINGS_GET' }
+  | { type: 'AI_SETTINGS_SET'; settings: AiGatewaySettings; token?: string }
+  | { type: 'AI_GATEWAY_TEST' }
   | { type: 'QUEUE_LIST' }
   | { type: 'QUEUE_ENQUEUE'; job: QueueJobInput }
   | { type: 'QUEUE_CLEAR' }
@@ -93,6 +104,7 @@ export type ContentRequest =
   | { type: 'PREPARE_COMMENT'; postId: string; comment: string }
 
 export type ReviewListResponse = ReviewCandidate[]
+export type GatewayHealth = AiHealthResponse
 
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }

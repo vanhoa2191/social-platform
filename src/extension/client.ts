@@ -1,5 +1,7 @@
+import { gatewayOriginPattern } from '../ai/gatewayProvider'
+import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
-import type { ExtensionResponse, FeedPost, RuntimeStatus } from './types'
+import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
 
 function runtimeAvailable(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id)
@@ -18,6 +20,19 @@ async function send<T>(message: unknown): Promise<ExtensionResponse<T>> {
 
 export function isExtensionRuntime(): boolean {
   return runtimeAvailable()
+}
+
+export async function requestGatewayOriginPermission(url: string): Promise<ExtensionResponse<{ granted: boolean }>> {
+  if (!runtimeAvailable()) return { ok: false, error: 'Chỉ có thể cấp quyền khi đang chạy Chrome Extension.' }
+  try {
+    const origin = gatewayOriginPattern(url)
+    const already = await chrome.permissions.contains({ origins: [origin] })
+    if (already) return { ok: true, data: { granted: true } }
+    const granted = await chrome.permissions.request({ origins: [origin] })
+    return { ok: true, data: { granted } }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Không thể xin quyền truy cập AI gateway.' }
+  }
 }
 
 export function getRuntimeStatus(): Promise<ExtensionResponse<RuntimeStatus>> {
@@ -52,6 +67,14 @@ export function retryReviewCandidate(candidateId: string): Promise<ExtensionResp
   return send<ReviewCandidate>({ type: 'REVIEW_RETRY', candidateId })
 }
 
+export function regenerateReviewCandidate(candidateId: string): Promise<ExtensionResponse<ReviewCandidate>> {
+  return send<ReviewCandidate>({ type: 'REVIEW_REGENERATE', candidateId })
+}
+
+export function updateReviewDraft(candidateId: string, text: string): Promise<ExtensionResponse<ReviewCandidate>> {
+  return send<ReviewCandidate>({ type: 'REVIEW_UPDATE_DRAFT', candidateId, text })
+}
+
 export function getSafetyState(): Promise<ExtensionResponse<AutomationSafetyState>> {
   return send<AutomationSafetyState>({ type: 'GET_SAFETY_STATE' })
 }
@@ -62,4 +85,16 @@ export function setEmergencyStop(enabled: boolean): Promise<ExtensionResponse<Au
 
 export function clearReviewCandidates(): Promise<ExtensionResponse<{ cleared: true }>> {
   return send<{ cleared: true }>({ type: 'REVIEW_CLEAR' })
+}
+
+export function getAiSettings(): Promise<ExtensionResponse<AiSettingsView>> {
+  return send<AiSettingsView>({ type: 'AI_SETTINGS_GET' })
+}
+
+export function saveAiSettings(settings: AiGatewaySettings, token?: string): Promise<ExtensionResponse<AiSettingsView>> {
+  return send<AiSettingsView>({ type: 'AI_SETTINGS_SET', settings, token })
+}
+
+export function testAiGateway(): Promise<ExtensionResponse<AiHealthResponse>> {
+  return send<AiHealthResponse>({ type: 'AI_GATEWAY_TEST' })
 }
