@@ -6,11 +6,76 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    match /users/{userId} {
-      allow read, write: if isOwner(userId);
+    function hasOnly(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
 
-      match /{document=**} {
-        allow read, write: if isOwner(userId);
+    match /users/{userId} {
+      allow read, write: if false;
+
+      match /browserInstances/{deviceKey} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && hasOnly(['id', 'deviceKey', 'name', 'extensionVersion', 'lastSeenAt', 'metadata'])
+          && request.resource.data.id == deviceKey
+          && request.resource.data.deviceKey == deviceKey
+          && request.resource.data.metadata.keys().hasOnly(['runtime']);
+      }
+
+      match /campaigns/{campaignId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && hasOnly(['id', 'name', 'type', 'status', 'config', 'revision', 'updatedAt'])
+          && request.resource.data.id == campaignId;
+      }
+
+      match /aiProfiles/{profileId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && hasOnly(['id', 'name', 'persona', 'promptVersion', 'config', 'revision', 'updatedAt'])
+          && request.resource.data.id == profileId;
+      }
+
+      match /schedules/{scheduleId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && hasOnly([
+            'id',
+            'localScheduleId',
+            'browserInstanceId',
+            'name',
+            'enabled',
+            'intervalMinutes',
+            'maxPosts',
+            'startHour',
+            'endHour',
+            'accountContextKey',
+            'accountLabel',
+            'revision',
+            'lastSyncedAt'
+          ])
+          && request.resource.data.id == scheduleId
+          && request.resource.data.localScheduleId == scheduleId;
+      }
+
+      match /analyticsEvents/{eventId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && hasOnly([
+            'browserInstanceId',
+            'localEventId',
+            'eventType',
+            'category',
+            'level',
+            'payload',
+            'occurredAt'
+          ])
+          && request.resource.data.localEventId == eventId
+          && request.resource.data.payload.keys().hasOnly(['schemaVersion']);
+      }
+
+      match /{unknownCollection}/{documentId} {
+        allow read, write: if false;
       }
     }
   }
