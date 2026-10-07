@@ -11,6 +11,7 @@ function installDom(html: string, url = 'https://www.facebook.com/'): Window {
     HTMLElement: win.HTMLElement,
     Element: win.Element,
     InputEvent: win.InputEvent,
+    MutationObserver: win.MutationObserver,
   })
   return win
 }
@@ -21,6 +22,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, 'HTMLElement')
   Reflect.deleteProperty(globalThis, 'Element')
   Reflect.deleteProperty(globalThis, 'InputEvent')
+  Reflect.deleteProperty(globalThis, 'MutationObserver')
 })
 
 describe('facebook adapter fixture integration', () => {
@@ -97,4 +99,38 @@ describe('facebook adapter fixture integration', () => {
     expect(diagnostic.health).toBe('DEGRADED')
     expect(diagnostic.warnings).toContain('Chưa nhận diện được account context.')
   })
+  it('uses canonical permalink identity when two posts have the same visible text', () => {
+    installDom(`
+      <nav role="navigation"><a aria-label="Profile" href="https://www.facebook.com/profile.php?id=123">Nguyễn Văn A</a></nav>
+      <div role="article"><strong>Cùng tác giả</strong><p>Đây là cùng một phần nội dung đủ dài để kiểm tra hai bài giống nhau vẫn có danh tính khác nhau nhờ permalink ổn định của Facebook.</p><a href="https://www.facebook.com/example/posts/111?__cft__=tracking">1 giờ</a></div>
+      <div role="article"><strong>Cùng tác giả</strong><p>Đây là cùng một phần nội dung đủ dài để kiểm tra hai bài giống nhau vẫn có danh tính khác nhau nhờ permalink ổn định của Facebook.</p><a href="https://www.facebook.com/example/posts/222?__cft__=tracking">2 giờ</a></div>
+    `)
+    const posts = facebookAdapter.scan(10)
+    expect(posts).toHaveLength(2)
+    expect(posts[0].id).not.toBe(posts[1].id)
+    expect(posts[0].permalink).toBe('https://www.facebook.com/example/posts/111')
+    expect(posts[1].permalink).toBe('https://www.facebook.com/example/posts/222')
+  })
+
+  it('waits for a composer inserted after clicking Comment', async () => {
+    const win = installDom(`
+      <nav role="navigation"><a aria-label="Profile" href="https://www.facebook.com/profile.php?id=123">Nguyễn Văn A</a></nav>
+      <div role="article"><strong>Trần Minh</strong><p>Bài viết này đủ dài để kiểm tra MutationObserver chờ composer xuất hiện sau khi Facebook render bất đồng bộ.</p><a href="https://www.facebook.com/example/posts/789">1 giờ</a><button aria-label="Bình luận">Bình luận</button></div>
+    `)
+    const article = win.document.querySelector('[role="article"]') as unknown as HTMLElement
+    article.scrollIntoView = () => undefined
+    const button = win.document.querySelector('button') as unknown as HTMLElement
+    button.addEventListener('click', () => {
+      win.setTimeout(() => {
+        const composer = win.document.createElement('div')
+        composer.setAttribute('contenteditable', 'true')
+        composer.setAttribute('role', 'textbox')
+        ;(article as any).appendChild(composer as any)
+      }, 20)
+    })
+    const [post] = facebookAdapter.scan(1)
+    const result = await facebookAdapter.prepareComment(post.id, 'Nội dung được chờ đúng composer.')
+    expect(result.prepared).toBe(true)
+  })
+
 })

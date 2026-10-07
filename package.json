@@ -1,7 +1,7 @@
 {
   "name": "social-platform",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,10 +17,11 @@
     "package:extension": "node scripts/check-release-readiness.mjs && node scripts/package-extension.mjs && node scripts/verify-release.mjs",
     "release:extension": "npm run build && npm run package:extension",
     "test:firestore-rules": "vitest run src/backend/firestore.rules.emulator.test.ts",
-    "test:firebase-emulator": "npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-autotool \"npm run test:firestore-rules\""
+    "test:firebase-emulator": "npx --yes firebase-tools@15.32.1 emulators:exec --only firestore --project demo-autotool \"npm run test:firestore-rules\""
   },
   "dependencies": {
     "firebase": "^12.19.0",
+    "jose": "^6.2.12",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

@@ -2,11 +2,13 @@ import type { CommentDraft } from '../automation/model'
 import type { FeedPost } from '../extension/types'
 
 export type AiMode = 'local' | 'gateway'
+export type AiGatewayAuthMode = 'firebase' | 'token'
 export type PromptVersion = 'comment-v1' | 'comment-v2'
 
 export interface AiGatewaySettings {
   mode: AiMode
   gatewayUrl: string
+  authMode: AiGatewayAuthMode
   promptVersion: PromptVersion
   timeoutMs: number
 }
@@ -44,6 +46,7 @@ export interface AiHealthResponse {
 export const defaultAiGatewaySettings: AiGatewaySettings = {
   mode: 'local',
   gatewayUrl: 'http://127.0.0.1:8787',
+  authMode: 'firebase',
   promptVersion: 'comment-v2',
   timeoutMs: 20_000,
 }

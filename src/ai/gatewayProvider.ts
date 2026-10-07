@@ -7,7 +7,16 @@ export function normalizeGatewayUrl(value: string): string {
   return value.trim().replace(/\/+$/, '')
 }
 
+export function isSupportedGatewayUrl(value: string): boolean {
+  try {
+    const url = new URL(normalizeGatewayUrl(value))
+    if (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)) return true
+    return url.protocol === 'https:' && url.hostname.endsWith('.workers.dev')
+  } catch { return false }
+}
+
 export function gatewayOriginPattern(value: string): string {
+  if (!isSupportedGatewayUrl(value)) throw new Error('Gateway production phải dùng HTTPS *.workers.dev; localhost chỉ dành cho dev.')
   const url = new URL(normalizeGatewayUrl(value))
   return `${url.origin}/*`
 }
@@ -19,6 +28,7 @@ export function createGatewayAiProvider(
   return {
     id: 'gateway',
     async generateComment(post: FeedPost): Promise<CommentDraft> {
+      if (!isSupportedGatewayUrl(settings.gatewayUrl)) throw new Error('AI gateway URL không nằm trong host allowlist của extension.')
       const controller = new AbortController()
       const timeout = globalThis.setTimeout(() => controller.abort(), settings.timeoutMs)
       try {
