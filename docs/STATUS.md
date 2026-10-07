@@ -4,30 +4,25 @@
 
 ### Phase 1 — UI shell
 - Dashboard
-- Campaign list
-- Campaign wizard
+- Campaign list/wizard
 - AI/content UI
-- Scheduler/queue/logs/settings shells
+- Scheduler/queue/log/settings shells
 
 ### Phase 2 — Chrome Extension MV3 core
-- Manifest V3
 - background service worker
 - Facebook content script
-- typed messaging
+- typed runtime messaging
 - IndexedDB/chrome.storage
-- build verification
 
 ### Phase 3 — Automation Engine MVP
 - deterministic review state machine
-- candidate persistence
-- approve / reject / retry
+- approve/reject/retry
 - draft edit/regenerate
 - approved-text composer preparation
 - Emergency Stop and session limits
 
 ### Phase 4 — AI Gateway
-- local/gateway mode
-- Cloudflare Worker bundle
+- local/gateway modes
 - provider routing
 - prompt versioning
 - structured output validation
@@ -37,83 +32,92 @@
 - durable leases
 - stale worker recovery
 - resource locks
-- retry backoff
+- retry/backoff
 - persisted schedules
 - runtime events
 
 ### Phase 6 — Platform adapters & account context
 - Facebook adapter
-- account-context binding
+- account context binding
 - adapter diagnostics
-- account-aware queue locks
-- account-aware composer preparation
+- account-aware locks and preparation
 
 ### Phase 7 — Cloud data layer
-- local-first architecture
-- browser instance registration
-- campaigns repository
-- AI profile repository
+- local-first cloud model
+- browser instances
+- campaigns
+- AI profiles
 - schedule sync
 - revision conflict resolution
 - opt-in analytics metadata
 
 ### Phase 8 — Testing & release hardening
-- Facebook fixture integration tests
+- Facebook fixture tests
 - IndexedDB migration tests
-- ZIP/checksum/release metadata
-- GitHub CI and tag release workflows
+- release ZIP/checksum/metadata
+- GitHub CI
+- tag-based releases
 
-### Phase 9 — Pilot & production safeguards
+### Phase 9 — Pilot safeguards
 - pilot mode default-on
-- low-volume caps
+- low-volume limits
 - readiness checklist
-- opt-in privacy-minimized telemetry
-- beta/stable release gate
+- opt-in telemetry
+- beta/stable promotion gate
 
-### Phase 10 — Firebase backend migration — DONE IN REPOSITORY
-- Supabase SDK removed
-- Firebase Web SDK added
-- Firebase Auth email/password flow for MV3
-- Firebase password reset and sign-out
-- Cloud Firestore repositories
-- browser instance sync to Firestore
-- schedule sync to Firestore
-- explicit Firestore/local conflict resolution
-- telemetry documents use stable local event ids
+### Phase 10 — Firebase backend migration
+- Firebase Auth for MV3
+- Cloud Firestore
 - Firestore Security Rules
-- Firebase CLI config
-- Firebase project environment template
-- targeted Firebase optional host permissions
+- Firebase environment config
 - Firebase setup guide
+- Supabase runtime dependency removed
+
+### Phase 11 — Firebase emulator & security hardening — DONE IN REPOSITORY
+- Firebase Auth/Firestore emulator configuration
+- application emulator mode
+- stricter allowlisted Firestore Security Rules
+- cross-user isolation tests
+- unauthenticated access tests
+- stable document identity checks
+- telemetry privacy rule tests
+- unknown collection deny-by-default test
+- Java 21 Firebase emulator tests in CI
+- Java 21 Firebase emulator tests in stable release workflow
+- backend UI indicates emulator mode
+- default test suite remains independent of Java/emulator availability
 
 ## Current product version
 
-0.9.0-beta
+0.10.0-beta
 
-## Validation
+## Local validation
 
-- lint: 0 warnings / 0 errors
-- tests: 35/35 passed
-- TypeScript: pass
-- dashboard production build: pass
-- Chrome Extension build verification: pass
-- AI Gateway bundle: pass
-- beta release package: pass
-- dev server: HTTP 200
-- npm production dependency audit: 0 vulnerabilities
+The standard build/test suite can run without Java:
 
-## External deployment note
+```bash
+npm run check
+```
 
-No Firebase project is connected through a Firebase management connector in this environment. The app and rules are prepared for a Firebase project, but project creation, billing choice and live rule deployment remain user-controlled.
+Firestore Rules integration tests require Java 21:
 
-## Next
+```bash
+npm run test:firebase-emulator
+```
 
-### Phase 11 — Live Firebase pilot
-1. Create/select a Firebase development project.
-2. Register a Firebase Web App.
-3. Enable Email/Password Auth.
-4. Create Firestore.
-5. Deploy `firestore.rules`.
-6. Add the Firebase Web config to the extension build.
-7. Test with two Firebase users to confirm cross-user Firestore access is denied.
-8. Pilot on approved Facebook test accounts.
+CI installs Java 21 automatically.
+
+## Remaining external work
+
+Only real-environment work remains:
+
+1. create/select a real Firebase development project;
+2. register a Web App and copy config;
+3. enable Email/Password Auth;
+4. create Firestore;
+5. deploy Security Rules;
+6. verify the same isolation checks against the dev project;
+7. run the controlled Facebook pilot;
+8. promote beta to stable only after pilot acceptance.
+
+No Firebase project is created automatically because ownership and billing choices remain user-controlled.
