@@ -12,7 +12,7 @@ export interface AiGatewaySettings {
 }
 
 export interface AiGatewayRequest {
-  post: Pick<FeedPost, 'id' | 'text' | 'author' | 'sourceUrl' | 'permalink'>
+  post: Pick<FeedPost, 'id' | 'text' | 'author'>
   promptVersion: PromptVersion
 }
 
@@ -58,7 +58,7 @@ export function parseAiGatewayResponse(value: unknown): AiGatewayResponse {
   const draft = root.draft as Record<string, unknown> | undefined
   const usage = root.usage as Record<string, unknown> | undefined
 
-  if (!draft || typeof draft.text !== 'string' || draft.text.trim().length < 2) {
+  if (!draft || typeof draft.text !== 'string' || draft.text.trim().length < 2 || draft.text.trim().length > 1200) {
     throw new Error('AI gateway thiếu draft.text.')
   }
   if (!isStrategy(draft.strategy)) throw new Error('AI gateway trả strategy không hợp lệ.')

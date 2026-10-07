@@ -10,6 +10,10 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function validHour(value) {
+      return value is int && value >= 0 && value <= 23;
+    }
+
     match /users/{userId} {
       allow read, write: if false;
 
@@ -19,6 +23,9 @@ service cloud.firestore {
           && hasOnly(['id', 'deviceKey', 'name', 'extensionVersion', 'lastSeenAt', 'metadata'])
           && request.resource.data.id == deviceKey
           && request.resource.data.deviceKey == deviceKey
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.extensionVersion is string
           && request.resource.data.metadata.keys().hasOnly(['runtime']);
       }
 
@@ -26,52 +33,65 @@ service cloud.firestore {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && hasOnly(['id', 'name', 'type', 'status', 'config', 'revision', 'updatedAt'])
-          && request.resource.data.id == campaignId;
+          && request.resource.data.id == campaignId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 200
+          && request.resource.data.type is string
+          && request.resource.data.status in ['draft', 'active', 'paused', 'archived']
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1;
       }
 
       match /aiProfiles/{profileId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && hasOnly(['id', 'name', 'persona', 'promptVersion', 'config', 'revision', 'updatedAt'])
-          && request.resource.data.id == profileId;
+          && request.resource.data.id == profileId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 200
+          && request.resource.data.promptVersion is string
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1;
       }
 
       match /schedules/{scheduleId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && hasOnly([
-            'id',
-            'localScheduleId',
-            'browserInstanceId',
-            'name',
-            'enabled',
-            'intervalMinutes',
-            'maxPosts',
-            'startHour',
-            'endHour',
-            'accountContextKey',
-            'accountLabel',
-            'revision',
-            'lastSyncedAt'
+            'id', 'localScheduleId', 'browserInstanceId', 'name', 'enabled',
+            'intervalMinutes', 'maxPosts', 'startHour', 'endHour',
+            'accountContextKey', 'accountLabel', 'revision',
+            'definitionUpdatedAt', 'lastSyncedAt'
           ])
           && request.resource.data.id == scheduleId
-          && request.resource.data.localScheduleId == scheduleId;
+          && request.resource.data.localScheduleId == scheduleId
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 200
+          && request.resource.data.enabled is bool
+          && request.resource.data.intervalMinutes is int
+          && request.resource.data.intervalMinutes >= 15
+          && request.resource.data.intervalMinutes <= 1440
+          && request.resource.data.maxPosts is int
+          && request.resource.data.maxPosts >= 1
+          && request.resource.data.maxPosts <= 20
+          && validHour(request.resource.data.startHour)
+          && validHour(request.resource.data.endHour)
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1
+          && request.resource.data.definitionUpdatedAt is int;
       }
 
       match /analyticsEvents/{eventId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
-          && hasOnly([
-            'browserInstanceId',
-            'localEventId',
-            'eventType',
-            'category',
-            'level',
-            'payload',
-            'occurredAt'
-          ])
+          && hasOnly(['browserInstanceId', 'localEventId', 'eventType', 'category', 'level', 'payload', 'occurredAt'])
           && request.resource.data.localEventId == eventId
-          && request.resource.data.payload.keys().hasOnly(['schemaVersion']);
+          && request.resource.data.browserInstanceId is string
+          && request.resource.data.eventType is string
+          && request.resource.data.category in ['SYSTEM', 'QUEUE', 'SCHEDULER', 'REVIEW', 'ADAPTER']
+          && request.resource.data.level in ['INFO', 'WARN', 'ERROR']
+          && request.resource.data.payload.keys().hasOnly(['schemaVersion'])
+          && request.resource.data.payload.schemaVersion == 1;
       }
 
       match /{unknownCollection}/{documentId} {

@@ -33,8 +33,6 @@ export function createGatewayAiProvider(
               id: post.id,
               text: post.text,
               author: post.author,
-              sourceUrl: post.sourceUrl,
-              permalink: post.permalink,
             },
             promptVersion: settings.promptVersion,
           }),

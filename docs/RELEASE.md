@@ -1,4 +1,4 @@
-# Testing and release hardening — v0.10.0
+# Testing and release hardening — v0.11.0
 
 ## Validation
 
@@ -32,7 +32,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.10.0 \
+RELEASE_TAG=v0.11.0 \
 npm run package:extension
 ```
 

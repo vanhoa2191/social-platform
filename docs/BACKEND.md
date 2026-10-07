@@ -1,4 +1,4 @@
-# Firebase backend — v0.10.0
+# Firebase backend — v0.11.0
 
 ## Architecture
 

@@ -20,6 +20,7 @@ export interface RemoteScheduleRecord {
   accountContextKey?: string | null
   accountLabel?: string | null
   revision: number
+  definitionUpdatedAt: number
   lastSyncedAt: string
 }
 
@@ -28,6 +29,7 @@ export interface SyncSummary {
   provider: 'firebase'
   browserInstanceId?: string
   schedulesPushed: number
+  schedulesPulled: number
   eventsPushed: number
   remoteSchedules: number
   conflicts: number

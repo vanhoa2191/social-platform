@@ -1,7 +1,7 @@
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
 import type { AccountContext, AdapterDiagnostic, PlatformContext, PlatformSurface } from '../platform/types'
-import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
+import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent, RuntimeEventCursor } from '../runtime/types'
 import type { PilotSettings } from './pilot'
 
 export type JobState =
@@ -124,8 +124,9 @@ export type BackgroundRequest =
   | { type: 'SCHEDULE_DELETE'; scheduleId: string }
   | { type: 'SCHEDULE_RUN_NOW'; scheduleId: string }
   | { type: 'SCHEDULE_TOUCH'; scheduleId: string }
-  | { type: 'SCHEDULE_APPLY_REMOTE'; schedule: ReviewScheduleInput & { id: string }; revision: number }
+  | { type: 'SCHEDULE_APPLY_REMOTE'; schedule: ReviewScheduleInput & { id: string }; revision: number; definitionUpdatedAt?: number }
   | { type: 'EVENT_LIST'; limit?: number }
+  | { type: 'EVENT_LIST_AFTER'; cursor?: RuntimeEventCursor; limit?: number }
   | { type: 'EVENT_CLEAR' }
 
 export type ContentRequest =

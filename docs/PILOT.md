@@ -1,4 +1,4 @@
-# Controlled pilot — v0.10.0
+# Controlled pilot — v0.11.0
 
 ## Objective
 

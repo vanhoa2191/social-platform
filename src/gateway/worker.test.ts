@@ -38,4 +38,46 @@ describe('AI gateway worker', () => {
     })
     expect(response.status).toBe(401)
   })
+
+  it('requires gateway authentication for real providers', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/health'), {
+      AI_PROVIDER: 'openai',
+    })
+    expect(response.status).toBe(503)
+  })
+
+  it('rejects oversized request bodies', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        post: { id: 'large', text: 'x'.repeat(5000) },
+        promptVersion: 'comment-v2',
+      }),
+    }), { AI_PROVIDER: 'mock', MAX_BODY_BYTES: '1024' })
+
+    expect(response.status).toBe(413)
+  })
+
+  it('rate limits repeated generation requests', async () => {
+    const makeRequest = () => new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer rate-test',
+      },
+      body: JSON.stringify({
+        post: { id: 'rate', text: 'Một bài viết đủ dài để kiểm tra rate limit.' },
+        promptVersion: 'comment-v2',
+      }),
+    })
+    const env = {
+      AI_PROVIDER: 'mock' as const,
+      GATEWAY_TOKEN: 'rate-test',
+      RATE_LIMIT_PER_MINUTE: '1',
+    }
+    expect((await worker.fetch(makeRequest(), env)).status).toBe(200)
+    expect((await worker.fetch(makeRequest(), env)).status).toBe(429)
+  })
+
 })

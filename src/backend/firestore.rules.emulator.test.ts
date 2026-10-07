@@ -94,6 +94,7 @@ describe('Firestore Security Rules', () => {
         accountContextKey: null,
         accountLabel: null,
         revision: 10,
+        definitionUpdatedAt: 10,
         lastSyncedAt: '2026-10-07T00:00:00.000Z',
       },
     ))
@@ -113,6 +114,7 @@ describe('Firestore Security Rules', () => {
         accountContextKey: null,
         accountLabel: null,
         revision: 10,
+        definitionUpdatedAt: 10,
         lastSyncedAt: '2026-10-07T00:00:00.000Z',
       },
     ))

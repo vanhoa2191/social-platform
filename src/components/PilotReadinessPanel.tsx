@@ -77,7 +77,7 @@ export default function PilotReadinessPanel() {
     return [
       {
         label: 'Runtime database',
-        state: runtime?.runtimeDbSchemaVersion === 4 ? 'PASS' : 'BLOCKED',
+        state: runtime?.runtimeDbSchemaVersion === 5 ? 'PASS' : 'BLOCKED',
         detail: runtime
           ? `IndexedDB v${runtime.runtimeDbVersion}, schema ${runtime.runtimeDbSchemaVersion ?? 'unknown'}`
           : 'Chưa đọc được runtime DB.',

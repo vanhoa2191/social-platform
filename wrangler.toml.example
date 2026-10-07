@@ -7,10 +7,15 @@ AI_PROVIDER = "mock"
 AI_MODEL = "mock-v1"
 AI_INPUT_USD_PER_M = "0"
 AI_OUTPUT_USD_PER_M = "0"
+RATE_LIMIT_PER_MINUTE = "30"
+PROVIDER_TIMEOUT_MS = "25000"
+MAX_BODY_BYTES = "16384"
 
 # Configure secrets with:
 # wrangler secret put GATEWAY_TOKEN
 # wrangler secret put AI_API_KEY
+#
+# GATEWAY_TOKEN is required whenever AI_PROVIDER is not "mock".
 #
 # Provider options:
 # mock | openai | deepseek | anthropic | gemini

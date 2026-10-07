@@ -1,4 +1,4 @@
-# Firebase security validation — v0.10.0
+# Firebase security validation — v0.11.0
 
 ## Purpose
 

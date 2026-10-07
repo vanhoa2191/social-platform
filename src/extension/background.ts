@@ -4,11 +4,12 @@ import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { CandidateState, ReviewCandidate } from '../automation/model'
 import { getCandidate, listCandidates, patchCandidate, upsertCandidate, clearCandidates } from '../automation/reviewStore'
 import { assertTransition } from '../automation/stateMachine'
+import { approvalSnapshot, shouldGenerateForScannedPost } from '../automation/reviewPolicy'
 import { AutomationError, classifyAutomationError } from '../automation/errors'
 import { isSupportedFacebookUrl } from '../core/helpers'
-import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, updateJob } from './queue'
-import { acquireLock, releaseLock } from '../runtime/locks'
-import { clearRuntimeEvents, listRuntimeEvents, logRuntimeEvent } from '../runtime/events'
+import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, renewJobLease, updateJob } from './queue'
+import { acquireLock, releaseLock, renewLock } from '../runtime/locks'
+import { clearRuntimeEvents, listRuntimeEvents, listRuntimeEventsAfter, logRuntimeEvent } from '../runtime/events'
 import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, touchSchedule, upsertSchedule } from '../runtime/schedules'
 import { computeBackoffMs } from '../runtime/retry'
 import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
@@ -28,6 +29,8 @@ import type {
 } from './types'
 
 const QUEUE_ALARM = 'autotool.queue.tick'
+const QUEUE_LEASE_MS = 2 * 60_000
+const QUEUE_HEARTBEAT_MS = 30_000
 const WORKER_ID = `service-worker:${chrome.runtime.id}`
 let activePreparationCandidateId: string | null = null
 
@@ -184,30 +187,33 @@ async function createReviewCandidates(
   const pilot = await getPilotSettings()
   const scan = await scanActiveTab(effectivePostLimit(limit, pilot), expectedAccountContextKey)
   if (!scan.ok) throw new Error(scan.error)
-
   const created: ReviewCandidate[] = []
+  const provider = await getAiProvider()
   for (const post of scan.data) {
     const id = `review_${post.id}`
     const existing = await getCandidate(id)
-    if (existing && ['PREPARED', 'REJECTED'].includes(existing.state)) {
-      created.push(existing)
+    if (!shouldGenerateForScannedPost(existing)) {
+      created.push(existing!)
       continue
     }
-
     const now = Date.now()
     const candidate: ReviewCandidate = {
-      id,
-      post,
-      draft: await (await getAiProvider()).generateComment(post),
-      state: existing?.state === 'APPROVED' ? 'APPROVED' : 'READY_FOR_REVIEW',
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      error: undefined,
+      id, post, draft: await provider.generateComment(post), state: 'READY_FOR_REVIEW',
+      createdAt: now, updatedAt: now, error: undefined,
     }
     await upsertCandidate(candidate)
     created.push(candidate)
   }
   return created
+}
+
+async function approveCandidate(id: string): Promise<ReviewCandidate> {
+  const candidate = await getCandidate(id)
+  if (!candidate) throw new Error('Không tìm thấy review candidate.')
+  assertTransition(candidate.state, 'APPROVED')
+  const updated = await patchCandidate(id, { state: 'APPROVED', ...approvalSnapshot(candidate.draft), error: undefined })
+  if (!updated) throw new Error('Không thể lưu snapshot đã duyệt.')
+  return updated
 }
 
 async function regenerateCandidate(id: string): Promise<ReviewCandidate> {
@@ -218,7 +224,7 @@ async function regenerateCandidate(id: string): Promise<ReviewCandidate> {
     throw new Error(`Chỉ regenerate candidate đang chờ duyệt hoặc bị lỗi, hiện tại: ${candidate.state}.`)
   }
   const draft = await (await getAiProvider()).generateComment(candidate.post)
-  const updated = await patchCandidate(id, { state: 'READY_FOR_REVIEW', draft, error: undefined })
+  const updated = await patchCandidate(id, { state: 'READY_FOR_REVIEW', draft, approvedDraft: undefined, approvedAt: undefined, error: undefined })
   if (!updated) throw new Error('Không thể lưu nháp mới.')
   return updated
 }
@@ -253,6 +259,11 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
 
   const candidate = await getCandidate(candidateId)
   if (!candidate) throw new Error('Không tìm thấy review candidate.')
+  const approvedText = candidate.approvedDraft?.text?.trim()
+  if (!approvedText || !candidate.approvedAt) {
+    throw new AutomationError('INVALID_STATE', 'Candidate chưa có snapshot nội dung đã duyệt. Hãy duyệt lại trước khi chuẩn bị comment.')
+  }
+
   const expectedAccountContextKey = candidate.post.accountContextKey
   if (!expectedAccountContextKey) {
     throw new AutomationError(
@@ -292,7 +303,7 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     const result = await sendToContent<PrepareCommentResult>(runtimeContext.tab.id, {
       type: 'PREPARE_COMMENT',
       postId: approved.post.id,
-      comment: approved.draft.text,
+      comment: approved.approvedDraft?.text ?? approvedText,
     })
     if (!result.ok) throw new Error(result.error)
     if (!result.data.prepared) throw new Error('Không xác minh được nội dung trong ô bình luận.')
@@ -340,15 +351,27 @@ async function materializeSchedules(now = Date.now()): Promise<void> {
   }
 }
 
+function startQueueLeaseHeartbeat(job: QueueJob): () => void {
+  const timer = globalThis.setInterval(() => {
+    void Promise.all([
+      renewJobLease(job.id, WORKER_ID, QUEUE_LEASE_MS),
+      renewLock(job.resourceKey, job.id, QUEUE_LEASE_MS),
+    ]).then(([jobLeaseOk, lockLeaseOk]) => {
+      if (!jobLeaseOk || !lockLeaseOk) void logRuntimeEvent('WARN', 'QUEUE', `Không thể gia hạn lease cho job ${job.id}.`)
+    })
+  }, QUEUE_HEARTBEAT_MS)
+  return () => globalThis.clearInterval(timer)
+}
+
 async function processQueueTick(): Promise<void> {
   const safety = await getSafetyState()
   if (safety.emergencyStop) return
 
   await materializeSchedules()
-  const jobs = await claimDueJobs(WORKER_ID, 3, 2 * 60_000)
+  const jobs = await claimDueJobs(WORKER_ID, 3, QUEUE_LEASE_MS)
 
   for (const job of jobs) {
-    const locked = await acquireLock(job.resourceKey, job.id, 2 * 60_000)
+    const locked = await acquireLock(job.resourceKey, job.id, QUEUE_LEASE_MS)
     if (!locked) {
       await updateJob(job.id, {
         state: 'PENDING',
@@ -360,6 +383,8 @@ async function processQueueTick(): Promise<void> {
       await logRuntimeEvent('WARN', 'QUEUE', `Job ${job.id} đang chờ lock ${job.resourceKey}.`)
       continue
     }
+
+    const stopHeartbeat = startQueueLeaseHeartbeat(job)
 
     try {
       if (job.type === 'SCAN_FEED') {
@@ -413,6 +438,7 @@ async function processQueueTick(): Promise<void> {
         message,
       )
     } finally {
+      stopHeartbeat()
       await releaseLock(job.resourceKey, job.id)
     }
   }
@@ -480,7 +506,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'REVIEW_APPROVE') {
-        const response: ExtensionResponse<ReviewCandidate> = { ok: true, data: await transitionCandidate(message.candidateId, 'APPROVED') }
+        const response: ExtensionResponse<ReviewCandidate> = { ok: true, data: await approveCandidate(message.candidateId) }
         sendResponse(response)
         return
       }
@@ -500,8 +526,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'REVIEW_RETRY') {
-        const response: ExtensionResponse<ReviewCandidate> = { ok: true, data: await transitionCandidate(message.candidateId, 'READY_FOR_REVIEW') }
-        sendResponse(response)
+        const candidate = await getCandidate(message.candidateId)
+        if (!candidate) throw new Error('Không tìm thấy review candidate.')
+        assertTransition(candidate.state, 'READY_FOR_REVIEW')
+        const retried = await patchCandidate(message.candidateId, { state: 'READY_FOR_REVIEW', approvedDraft: undefined, approvedAt: undefined, error: undefined })
+        if (!retried) throw new Error('Không thể đưa candidate về hàng chờ duyệt.')
+        sendResponse({ ok: true, data: retried })
         return
       }
       if (message.type === 'REVIEW_REGENERATE') {
@@ -642,7 +672,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SCHEDULE_APPLY_REMOTE') {
-        const schedule = await applyRemoteSchedule(message.schedule, message.revision)
+        const schedule = await applyRemoteSchedule(message.schedule, message.revision, message.definitionUpdatedAt)
         await logRuntimeEvent('INFO', 'SCHEDULER', `Đã áp dụng bản cloud cho lịch "${schedule.name}".`)
         const response: ExtensionResponse<ReviewSchedule> = { ok: true, data: schedule }
         sendResponse(response)
@@ -651,6 +681,10 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
       if (message.type === 'EVENT_LIST') {
         const response: ExtensionResponse<RuntimeEvent[]> = { ok: true, data: await listRuntimeEvents(message.limit ?? 100) }
         sendResponse(response)
+        return
+      }
+      if (message.type === 'EVENT_LIST_AFTER') {
+        sendResponse({ ok: true, data: await listRuntimeEventsAfter(message.cursor, message.limit ?? 500) })
         return
       }
       if (message.type === 'EVENT_CLEAR') {
