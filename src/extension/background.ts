@@ -6,7 +6,12 @@ import { getCandidate, listCandidates, patchCandidate, upsertCandidate, clearCan
 import { assertTransition } from '../automation/stateMachine'
 import { AutomationError, classifyAutomationError } from '../automation/errors'
 import { isSupportedFacebookUrl } from '../core/helpers'
-import { clearQueue, countJobs, enqueueJob, listJobs, updateJob } from './queue'
+import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, updateJob } from './queue'
+import { acquireLock, releaseLock } from '../runtime/locks'
+import { clearRuntimeEvents, listRuntimeEvents, logRuntimeEvent } from '../runtime/events'
+import { deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, upsertSchedule } from '../runtime/schedules'
+import { computeBackoffMs } from '../runtime/retry'
+import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
 import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken } from './storage'
 import type {
   BackgroundRequest,
@@ -20,11 +25,17 @@ import type {
 } from './types'
 
 const QUEUE_ALARM = 'autotool.queue.tick'
+const WORKER_ID = `service-worker:${chrome.runtime.id}`
 let activePreparationCandidateId: string | null = null
 
-async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
-  return tabs[0]
+async function getFacebookTab(): Promise<chrome.tabs.Tab | undefined> {
+  const currentWindowTabs = await chrome.tabs.query({ currentWindow: true })
+  const activeFacebook = currentWindowTabs.find((tab) => tab.active && isSupportedFacebookUrl(tab.url))
+  if (activeFacebook) return activeFacebook
+  const currentFacebook = currentWindowTabs.find((tab) => isSupportedFacebookUrl(tab.url))
+  if (currentFacebook) return currentFacebook
+  const allTabs = await chrome.tabs.query({})
+  return allTabs.find((tab) => isSupportedFacebookUrl(tab.url))
 }
 
 async function sendToContent<T>(tabId: number, request: ContentRequest): Promise<ExtensionResponse<T>> {
@@ -76,9 +87,14 @@ async function ensureAutomationAllowed(): Promise<void> {
 }
 
 async function getRuntimeStatus(): Promise<RuntimeStatus> {
-  const activeTab = await getActiveTab()
+  const activeTab = await getFacebookTab()
   const candidates = await listCandidates(['READY_FOR_REVIEW', 'APPROVED', 'PREPARING'])
-  const [settings, sessionActions] = await Promise.all([getSettings(), getSessionActionCount()])
+  const [settings, sessionActions, schedules, events] = await Promise.all([
+    getSettings(),
+    getSessionActionCount(),
+    listSchedules(),
+    listRuntimeEvents(100),
+  ])
   return {
     extensionId: chrome.runtime.id,
     version: chrome.runtime.getManifest().version,
@@ -92,6 +108,8 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
       : undefined,
     queuedJobs: await countJobs(),
     reviewCandidates: candidates.length,
+    enabledSchedules: schedules.filter((schedule) => schedule.enabled).length,
+    recentErrors: events.filter((event) => event.level === 'ERROR').length,
     sessionActions,
     maxSessionActions: settings.maxActionsPerSession,
     safety: await getSafetyState(),
@@ -99,7 +117,7 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
 }
 
 async function scanActiveTab(limit?: number): Promise<ExtensionResponse<FeedPost[]>> {
-  const activeTab = await getActiveTab()
+  const activeTab = await getFacebookTab()
   if (!activeTab?.id) return { ok: false, error: 'Không tìm thấy tab đang hoạt động.' }
   if (!isSupportedFacebookUrl(activeTab.url)) {
     return { ok: false, error: 'Hãy mở facebook.com trên tab hiện tại trước khi quét.' }
@@ -177,6 +195,13 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
   if (activePreparationCandidateId) {
     throw new AutomationError('LOCKED', `Đang chuẩn bị candidate ${activePreparationCandidateId}. Hãy chờ tác vụ đó hoàn tất.`)
   }
+
+  const lockOwner = `review:${candidateId}`
+  const locked = await acquireLock('facebook:active-tab', lockOwner, 2 * 60_000)
+  if (!locked) {
+    throw new AutomationError('LOCKED', 'Browser runtime đang bận với tác vụ khác. Hãy thử lại sau.')
+  }
+
   activePreparationCandidateId = candidateId
 
   try {
@@ -186,8 +211,9 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     if (currentActionCount >= settings.maxActionsPerSession) {
       throw new AutomationError('INVALID_STATE', `Đã đạt giới hạn ${settings.maxActionsPerSession} thao tác trong phiên này.`)
     }
+
     const approved = await transitionCandidate(candidateId, 'PREPARING')
-    const activeTab = await getActiveTab()
+    const activeTab = await getFacebookTab()
     if (!activeTab?.id) throw new AutomationError('TAB_NOT_FOUND', 'Không tìm thấy tab đang hoạt động.', true)
     if (!isSupportedFacebookUrl(activeTab.url)) {
       throw new AutomationError('WRONG_PAGE', 'Tab hiện tại không phải Facebook.', true)
@@ -204,13 +230,34 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     const prepared = await patchCandidate(candidateId, { state: 'PREPARED', error: undefined })
     if (!prepared) throw new Error('Không thể lưu trạng thái PREPARED.')
     await incrementSessionActionCount()
+    await logRuntimeEvent('INFO', 'REVIEW', 'Đã điền nội dung đã duyệt vào composer. Người dùng vẫn cần tự bấm Gửi.')
     return prepared
   } catch (error) {
     const classified = classifyAutomationError(error)
     await patchCandidate(candidateId, { state: 'FAILED', error: `${classified.code}: ${classified.message}` })
+    await logRuntimeEvent('ERROR', 'REVIEW', 'Không thể chuẩn bị nội dung trong composer.', classified.message)
     throw classified
   } finally {
     activePreparationCandidateId = null
+    await releaseLock('facebook:active-tab', lockOwner)
+  }
+}
+
+async function materializeSchedules(now = Date.now()): Promise<void> {
+  const schedules = await listSchedules()
+  for (const schedule of schedules) {
+    if (!scheduleCanRun(schedule, new Date(now))) continue
+    const bucket = Math.floor(now / 60_000)
+    await enqueueJob({
+      type: 'CREATE_REVIEW_CANDIDATES',
+      dedupeKey: `schedule:${schedule.id}:${bucket}`,
+      resourceKey: 'facebook:active-tab',
+      payload: { limit: schedule.maxPosts, scheduleId: schedule.id, scheduleName: schedule.name },
+      scheduledAt: now,
+      maxAttempts: 4,
+    })
+    await markScheduleRun(schedule.id, now)
+    await logRuntimeEvent('INFO', 'SCHEDULER', `Đã đưa lịch "${schedule.name}" vào hàng đợi.`)
   }
 }
 
@@ -218,25 +265,70 @@ async function processQueueTick(): Promise<void> {
   const safety = await getSafetyState()
   if (safety.emergencyStop) return
 
-  const jobs = (await listJobs()).filter((job) => job.state === 'PENDING' && job.scheduledAt <= Date.now())
-  for (const job of jobs.slice(0, 3)) {
-    await updateJob(job.id, { state: 'PROCESSING', attempts: job.attempts + 1 })
+  await materializeSchedules()
+  const jobs = await claimDueJobs(WORKER_ID, 3, 2 * 60_000)
+
+  for (const job of jobs) {
+    const locked = await acquireLock(job.resourceKey, job.id, 2 * 60_000)
+    if (!locked) {
+      await updateJob(job.id, {
+        state: 'PENDING',
+        scheduledAt: Date.now() + 30_000,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        lastError: 'Resource is currently locked by another job.',
+      })
+      await logRuntimeEvent('WARN', 'QUEUE', `Job ${job.id} đang chờ lock ${job.resourceKey}.`)
+      continue
+    }
+
     try {
       if (job.type === 'SCAN_FEED') {
         const result = await scanActiveTab(Number(job.payload.limit ?? 20))
         if (!result.ok) throw new Error(result.error)
-        await updateJob(job.id, { state: 'SUCCESS', payload: { ...job.payload, result: result.data } })
+        await updateJob(job.id, {
+          state: 'SUCCESS',
+          payload: { ...job.payload, resultCount: result.data.length },
+          leaseOwner: undefined,
+          leaseExpiresAt: undefined,
+          lastError: undefined,
+        })
+        await logRuntimeEvent('INFO', 'QUEUE', `Quét feed thành công: ${result.data.length} bài.`)
+      } else if (job.type === 'CREATE_REVIEW_CANDIDATES') {
+        const candidates = await createReviewCandidates(Number(job.payload.limit ?? 10))
+        await updateJob(job.id, {
+          state: 'SUCCESS',
+          payload: { ...job.payload, candidateCount: candidates.length },
+          leaseOwner: undefined,
+          leaseExpiresAt: undefined,
+          lastError: undefined,
+        })
+        await logRuntimeEvent('INFO', 'REVIEW', `Đã tạo ${candidates.length} ứng viên chờ duyệt.`)
       } else {
-        await updateJob(job.id, { state: 'READY_FOR_REVIEW' })
+        await updateJob(job.id, {
+          state: 'READY_FOR_REVIEW',
+          leaseOwner: undefined,
+          leaseExpiresAt: undefined,
+        })
       }
     } catch (error) {
-      const current = (await listJobs()).find((item) => item.id === job.id)
-      const shouldRetry = (current?.attempts ?? 1) < job.maxAttempts
+      const message = error instanceof Error ? error.message : 'Unknown queue error'
+      const shouldRetry = job.attempts < job.maxAttempts
       await updateJob(job.id, {
         state: shouldRetry ? 'PENDING' : 'FAILED',
-        scheduledAt: Date.now() + 60_000,
-        lastError: error instanceof Error ? error.message : 'Unknown queue error',
+        scheduledAt: Date.now() + computeBackoffMs(job.attempts),
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        lastError: message,
       })
+      await logRuntimeEvent(
+        shouldRetry ? 'WARN' : 'ERROR',
+        'QUEUE',
+        shouldRetry ? `Job lỗi, sẽ thử lại lần ${job.attempts + 1}.` : 'Job thất bại sau khi hết số lần thử.',
+        message,
+      )
+    } finally {
+      await releaseLock(job.resourceKey, job.id)
     }
   }
 }
@@ -244,6 +336,7 @@ async function processQueueTick(): Promise<void> {
 chrome.runtime.onInstalled.addListener(() => {
   void ensureDefaultSettings()
   void chrome.alarms.create(QUEUE_ALARM, { periodInMinutes: 1 })
+  void logRuntimeEvent('INFO', 'SYSTEM', 'AutoTool runtime đã được cài đặt/cập nhật.')
 })
 
 chrome.runtime.onStartup.addListener(() => {
@@ -357,6 +450,55 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
       if (message.type === 'QUEUE_LIST') {
         const response: ExtensionResponse<QueueJob[]> = { ok: true, data: await listJobs() }
         sendResponse(response)
+        return
+      }
+      if (message.type === 'QUEUE_RUN_NOW') {
+        await processQueueTick()
+        sendResponse({ ok: true, data: { processed: true } })
+        return
+      }
+      if (message.type === 'SCHEDULE_LIST') {
+        const response: ExtensionResponse<ReviewSchedule[]> = { ok: true, data: await listSchedules() }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'SCHEDULE_UPSERT') {
+        const schedule = await upsertSchedule(message.schedule)
+        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã lưu lịch "${schedule.name}".`)
+        const response: ExtensionResponse<ReviewSchedule> = { ok: true, data: schedule }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'SCHEDULE_DELETE') {
+        await deleteSchedule(message.scheduleId)
+        await logRuntimeEvent('INFO', 'SCHEDULER', 'Đã xóa lịch chạy.')
+        sendResponse({ ok: true, data: { deleted: true } })
+        return
+      }
+      if (message.type === 'SCHEDULE_RUN_NOW') {
+        const schedule = (await listSchedules()).find((item) => item.id === message.scheduleId)
+        if (!schedule) throw new Error('Không tìm thấy lịch chạy.')
+        await enqueueJob({
+          type: 'CREATE_REVIEW_CANDIDATES',
+          dedupeKey: `manual-schedule:${schedule.id}:${crypto.randomUUID()}`,
+          resourceKey: 'facebook:active-tab',
+          payload: { limit: schedule.maxPosts, scheduleId: schedule.id, scheduleName: schedule.name },
+          scheduledAt: Date.now(),
+          maxAttempts: 4,
+        })
+        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã yêu cầu chạy ngay lịch "${schedule.name}".`)
+        await processQueueTick()
+        sendResponse({ ok: true, data: { queued: true } })
+        return
+      }
+      if (message.type === 'EVENT_LIST') {
+        const response: ExtensionResponse<RuntimeEvent[]> = { ok: true, data: await listRuntimeEvents(message.limit ?? 100) }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'EVENT_CLEAR') {
+        await clearRuntimeEvents()
+        sendResponse({ ok: true, data: { cleared: true } })
         return
       }
       if (message.type === 'QUEUE_ENQUEUE') {

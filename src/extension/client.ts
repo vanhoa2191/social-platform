@@ -1,6 +1,7 @@
 import { gatewayOriginPattern } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
+import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
 import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
 
 function runtimeAvailable(): boolean {
@@ -97,4 +98,33 @@ export function saveAiSettings(settings: AiGatewaySettings, token?: string): Pro
 
 export function testAiGateway(): Promise<ExtensionResponse<AiHealthResponse>> {
   return send<AiHealthResponse>({ type: 'AI_GATEWAY_TEST' })
+}
+
+
+export function listSchedules(): Promise<ExtensionResponse<ReviewSchedule[]>> {
+  return send<ReviewSchedule[]>({ type: 'SCHEDULE_LIST' })
+}
+
+export function saveSchedule(schedule: ReviewScheduleInput): Promise<ExtensionResponse<ReviewSchedule>> {
+  return send<ReviewSchedule>({ type: 'SCHEDULE_UPSERT', schedule })
+}
+
+export function deleteSchedule(scheduleId: string): Promise<ExtensionResponse<{ deleted: true }>> {
+  return send<{ deleted: true }>({ type: 'SCHEDULE_DELETE', scheduleId })
+}
+
+export function runScheduleNow(scheduleId: string): Promise<ExtensionResponse<{ queued: true }>> {
+  return send<{ queued: true }>({ type: 'SCHEDULE_RUN_NOW', scheduleId })
+}
+
+export function runQueueNow(): Promise<ExtensionResponse<{ processed: true }>> {
+  return send<{ processed: true }>({ type: 'QUEUE_RUN_NOW' })
+}
+
+export function listRuntimeEvents(limit = 100): Promise<ExtensionResponse<RuntimeEvent[]>> {
+  return send<RuntimeEvent[]>({ type: 'EVENT_LIST', limit })
+}
+
+export function clearRuntimeEvents(): Promise<ExtensionResponse<{ cleared: true }>> {
+  return send<{ cleared: true }>({ type: 'EVENT_CLEAR' })
 }

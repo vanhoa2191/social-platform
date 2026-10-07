@@ -1,5 +1,6 @@
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
+import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
 
 export type JobState =
   | 'PENDING'
@@ -9,13 +10,14 @@ export type JobState =
   | 'FAILED'
   | 'SKIPPED'
 
-export type JobType = 'SCAN_FEED' | 'AI_DRAFT' | 'REVIEW'
+export type JobType = 'SCAN_FEED' | 'CREATE_REVIEW_CANDIDATES' | 'AI_DRAFT' | 'REVIEW'
 
 export interface QueueJob {
   id: string
   type: JobType
   state: JobState
   dedupeKey: string
+  resourceKey: string
   payload: Record<string, unknown>
   scheduledAt: number
   createdAt: number
@@ -23,11 +25,14 @@ export interface QueueJob {
   attempts: number
   maxAttempts: number
   lastError?: string
+  leaseOwner?: string
+  leaseExpiresAt?: number
 }
 
 export interface QueueJobInput {
   type: JobType
   dedupeKey: string
+  resourceKey?: string
   payload?: Record<string, unknown>
   scheduledAt?: number
   maxAttempts?: number
@@ -59,6 +64,8 @@ export interface RuntimeStatus {
   }
   queuedJobs: number
   reviewCandidates: number
+  enabledSchedules: number
+  recentErrors: number
   sessionActions: number
   maxSessionActions: number
   safety: AutomationSafetyState
@@ -95,7 +102,14 @@ export type BackgroundRequest =
   | { type: 'AI_GATEWAY_TEST' }
   | { type: 'QUEUE_LIST' }
   | { type: 'QUEUE_ENQUEUE'; job: QueueJobInput }
+  | { type: 'QUEUE_RUN_NOW' }
   | { type: 'QUEUE_CLEAR' }
+  | { type: 'SCHEDULE_LIST' }
+  | { type: 'SCHEDULE_UPSERT'; schedule: ReviewScheduleInput }
+  | { type: 'SCHEDULE_DELETE'; scheduleId: string }
+  | { type: 'SCHEDULE_RUN_NOW'; scheduleId: string }
+  | { type: 'EVENT_LIST'; limit?: number }
+  | { type: 'EVENT_CLEAR' }
 
 export type ContentRequest =
   | { type: 'CONTENT_PING' }
@@ -105,6 +119,8 @@ export type ContentRequest =
 
 export type ReviewListResponse = ReviewCandidate[]
 export type GatewayHealth = AiHealthResponse
+export type ScheduleListResponse = ReviewSchedule[]
+export type RuntimeEventListResponse = RuntimeEvent[]
 
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }

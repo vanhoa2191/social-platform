@@ -18,6 +18,7 @@ export async function enqueueJob(input: QueueJobInput): Promise<QueueJob> {
     type: input.type,
     state: 'PENDING',
     dedupeKey: input.dedupeKey,
+    resourceKey: input.resourceKey ?? 'facebook:active-tab',
     payload: input.payload ?? {},
     scheduledAt: input.scheduledAt ?? now,
     createdAt: now,
@@ -35,20 +36,43 @@ export async function enqueueJob(input: QueueJobInput): Promise<QueueJob> {
 export async function listJobs(): Promise<QueueJob[]> {
   const db = await openRuntimeDb()
   const transaction = db.transaction(JOBS_STORE, 'readonly')
-  const store = transaction.objectStore(JOBS_STORE)
-  const jobs = await requestToPromise(store.getAll() as IDBRequest<QueueJob[]>)
+  const jobs = await requestToPromise(transaction.objectStore(JOBS_STORE).getAll() as IDBRequest<QueueJob[]>)
   await transactionDone(transaction)
   db.close()
   return jobs.sort((a, b) => a.scheduledAt - b.scheduledAt)
 }
 
 export async function countJobs(): Promise<number> {
+  const jobs = await listJobs()
+  return jobs.filter((job) => !['SUCCESS', 'FAILED', 'SKIPPED'].includes(job.state)).length
+}
+
+export async function claimDueJobs(owner: string, limit = 3, leaseMs = 2 * 60_000): Promise<QueueJob[]> {
   const db = await openRuntimeDb()
-  const transaction = db.transaction(JOBS_STORE, 'readonly')
-  const count = await requestToPromise(transaction.objectStore(JOBS_STORE).count())
+  const transaction = db.transaction(JOBS_STORE, 'readwrite')
+  const store = transaction.objectStore(JOBS_STORE)
+  const jobs = await requestToPromise(store.getAll() as IDBRequest<QueueJob[]>)
+  const now = Date.now()
+  const due = jobs
+    .filter((job) => {
+      const stale = job.state === 'PROCESSING' && (job.leaseExpiresAt ?? 0) <= now
+      return (job.state === 'PENDING' || stale) && job.scheduledAt <= now
+    })
+    .sort((a,b)=>a.scheduledAt-b.scheduledAt)
+    .slice(0, Math.max(1, limit))
+
+  const claimed = due.map((job) => ({
+    ...job,
+    state: 'PROCESSING' as const,
+    attempts: job.attempts + 1,
+    leaseOwner: owner,
+    leaseExpiresAt: now + leaseMs,
+    updatedAt: now,
+  }))
+  for (const job of claimed) store.put(job)
   await transactionDone(transaction)
   db.close()
-  return count
+  return claimed
 }
 
 export async function updateJob(id: string, patch: Partial<QueueJob>): Promise<QueueJob | undefined> {

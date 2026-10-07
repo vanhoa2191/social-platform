@@ -58,7 +58,7 @@ export default function RuntimeCard() {
       <div className="panel-head">
         <div>
           <h3>Browser Runtime</h3>
-          <p>Kiểm tra kết nối Chrome Extension và quét thử tab Facebook hiện tại.</p>
+          <p>Kiểm tra Chrome Extension, queue, scheduler và tab Facebook hiện tại.</p>
         </div>
         <span className={extensionMode ? 'runtime-badge online' : 'runtime-badge preview'}>
           {extensionMode
@@ -72,7 +72,7 @@ export default function RuntimeCard() {
       <div className="runtime-grid">
         <div className="runtime-stat">
           <span>Phiên bản</span>
-          <strong>{status?.version ?? (extensionMode ? 'Đang kết nối…' : '0.1.0 preview')}</strong>
+          <strong>{status?.version ?? (extensionMode ? 'Đang kết nối…' : 'preview')}</strong>
         </div>
         <div className="runtime-stat">
           <span>Tab hiện tại</span>
@@ -87,6 +87,10 @@ export default function RuntimeCard() {
         <div className="runtime-stat">
           <span>Queue / Review</span>
           <strong>{status?.queuedJobs ?? 0} job · {status?.reviewCandidates ?? 0} review</strong>
+        </div>
+        <div className="runtime-stat">
+          <span>Lịch / lỗi gần đây</span>
+          <strong>{status ? `${status.enabledSchedules} lịch · ${status.recentErrors} lỗi` : '—'}</strong>
         </div>
         <div className="runtime-stat">
           <span>Giới hạn phiên</span>

@@ -1,7 +1,10 @@
 export const DB_NAME = 'autotool-runtime'
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 export const JOBS_STORE = 'jobs'
 export const CANDIDATES_STORE = 'candidates'
+export const LOCKS_STORE = 'locks'
+export const SCHEDULES_STORE = 'schedules'
+export const EVENTS_STORE = 'events'
 
 export function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -34,6 +37,19 @@ export async function openRuntimeDb(): Promise<IDBDatabase> {
         candidates.createIndex('postId', 'post.id', { unique: true })
         candidates.createIndex('state', 'state')
         candidates.createIndex('updatedAt', 'updatedAt')
+      }
+      if (!database.objectStoreNames.contains(LOCKS_STORE)) {
+        database.createObjectStore(LOCKS_STORE, { keyPath: 'key' })
+      }
+      if (!database.objectStoreNames.contains(SCHEDULES_STORE)) {
+        const schedules = database.createObjectStore(SCHEDULES_STORE, { keyPath: 'id' })
+        schedules.createIndex('nextRunAt', 'nextRunAt')
+        schedules.createIndex('enabled', 'enabled')
+      }
+      if (!database.objectStoreNames.contains(EVENTS_STORE)) {
+        const events = database.createObjectStore(EVENTS_STORE, { keyPath: 'id' })
+        events.createIndex('createdAt', 'createdAt')
+        events.createIndex('level', 'level')
       }
     }
     request.onsuccess = () => resolve(request.result)

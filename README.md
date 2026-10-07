@@ -2,48 +2,51 @@
 
 Campaign-centric UI, Chrome Extension MV3 runtime and optional server-side AI Gateway.
 
-Current version: **0.3.0**
+Current version: **0.4.0**
 
-## Implemented
+## Current capabilities
 
 ### Product UI
 - dashboard
-- campaign management and 5-step wizard
-- accounts & profiles
-- AI profiles
+- campaign management
+- accounts/profiles shell
+- AI settings
 - content library
-- scheduler
-- queue/review UI
-- logs and analytics shell
-- settings
+- real persisted scheduler
+- review queue
+- real runtime logs
+- analytics/settings shell
 
 ### Chrome runtime
 - Manifest V3
 - background service worker
 - Facebook content script
-- typed runtime messaging
-- IndexedDB queue/review storage
-- chrome.storage settings
+- typed messages
+- IndexedDB runtime database
+- durable queue leases
+- durable browser resource locks
+- exponential retry/backoff
+- persisted schedules
+- chrome.storage safety/settings
 - Emergency Stop
 - session action limit
-- optional gateway origin permission
 
-### Controlled automation
-- scan visible Facebook posts
+### Controlled review workflow
+- find an open Facebook tab
+- scan visible posts
 - create AI drafts
-- edit/regenerate/reject/approve drafts
-- prepare approved text in the Facebook composer
+- edit/regenerate/reject/approve
+- prepare approved text in the composer
 - verify inserted text
 - user manually clicks **Gửi**
 
 ### AI Gateway
 - local mock mode
 - Cloudflare Worker bundle
-- OpenAI-compatible / DeepSeek / Anthropic / Gemini provider adapters
-- server-side API keys
+- OpenAI-compatible / DeepSeek / Anthropic / Gemini adapters
+- server-side provider keys
 - prompt versions
 - JSON validation
-- health endpoint
 - token/cost metadata
 
 ## Development
@@ -59,15 +62,13 @@ npm run dev
 npm run check
 ```
 
-This runs lint, unit tests, the dashboard build, extension runtime bundling/verification and AI gateway bundling.
-
-## Build Chrome Extension
+## Build extension
 
 ```bash
 npm run build
 ```
 
-Load `dist/` from `chrome://extensions` using **Load unpacked**.
+Load `dist/` from `chrome://extensions` with **Load unpacked**.
 
 ## Build AI Gateway
 
@@ -75,14 +76,13 @@ Load `dist/` from `chrome://extensions` using **Load unpacked**.
 npm run build:gateway
 ```
 
-The Worker bundle is created at `dist-gateway/worker.js`. See `wrangler.toml.example` and `docs/AI_GATEWAY.md`.
-
-## Docs
+## Documentation
 
 - `docs/PLAN.md`
 - `docs/STATUS.md`
 - `docs/EXTENSION.md`
 - `docs/AUTOMATION_MVP.md`
 - `docs/AI_GATEWAY.md`
+- `docs/QUEUE_SCHEDULER.md`
 
-The current product intentionally keeps final social-platform submission under user control.
+The product keeps final social-platform submission under explicit user control.

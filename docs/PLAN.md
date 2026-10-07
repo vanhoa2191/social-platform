@@ -1,77 +1,45 @@
 # AutoTool v2 implementation plan
 
 ## Phase 1 — Product shell and UI — DONE
-- Design system
-- Dashboard
-- Campaign wizard
-- Profiles
-- AI/content UI
-- Scheduler
-- Queue
-- Logs
-- Analytics
-- Settings
 
 ## Phase 2 — Chrome Extension MV3 core — DONE
-- Manifest V3
-- Background service worker
-- Content scripts
-- Typed messages
-- IndexedDB/chrome.storage
-- runtime diagnostics
-- CI/build verification
 
-## Phase 3 — Automation engine MVP — DONE
-- deterministic candidate state machine
-- feed scanner integration
-- review queue
-- explicit approval
-- Facebook composer preparation
-- verification
-- Emergency Stop
-- limits and locking
+## Phase 3 — Automation Engine MVP — DONE
 
-## Phase 4 — AI gateway — DONE
-- local/gateway mode
-- Cloudflare Worker bundle
-- provider routing for OpenAI-compatible, DeepSeek, Anthropic and Gemini
-- server-side secrets
-- prompt registry/versioning
-- structured response validation
-- health check
-- origin permission flow
-- token/cost metadata
-- draft edit and regeneration
+## Phase 4 — AI Gateway — DONE
 
-## Phase 5 — Queue and scheduler hardening — NEXT
-- durable locks
-- per-profile locks
-- retry backoff
-- cooldown rules
-- persistent schedules
-- campaign chains
-- notifications
-- runtime event log
+## Phase 5 — Queue & Scheduler hardening — DONE
+- durable IndexedDB job leases
+- stale worker recovery
+- durable runtime resource locks
+- exponential retry/backoff
+- persistent review-scan schedules
+- daily scheduling windows
+- Run Now support
+- Facebook tab discovery
+- real runtime event log
+- scheduler/log UI connected to the extension runtime
 
-## Phase 6 — Platform adapters
-- stronger feed selectors
-- group adapter
-- page adapter
-- composer adapter revisions
-- identity context verification
-- DOM compatibility diagnostics
+## Phase 6 — Platform adapters & account context — NEXT
+- adapter interface
+- feed adapter refactor
+- selector compatibility diagnostics
+- account/profile context detection
+- verified context binding for jobs and schedules
+- group/page read adapters
+- adapter status UI
 
 ## Phase 7 — Backend data layer
-- Auth
+- authentication
 - Supabase/PostgreSQL
 - campaign persistence/sync
+- shared AI/profile settings
 - analytics aggregation
-- shared prompt/profile configuration
-- device/browser-instance registration
+- browser-instance registration
 
 ## Phase 8 — Testing and release
 - browser integration tests
 - packaged extension
 - release channels
 - observability
-- upgrade/migration strategy
+- migrations/upgrades
