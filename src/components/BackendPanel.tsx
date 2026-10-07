@@ -22,6 +22,7 @@ type AuthMode = 'login' | 'register'
 
 export default function BackendPanel() {
   const configured = backendConfigured()
+  const backendConfig = getBackendConfig()
   const extensionMode = isExtensionRuntime()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -33,8 +34,12 @@ export default function BackendPanel() {
   const [version, setVersion] = useState('web-preview')
 
   const modeLabel = useMemo(
-    () => configured ? (signedInEmail ? 'Firebase connected' : 'Firebase configured') : 'Local-only mode',
-    [configured, signedInEmail],
+    () => {
+      if (!configured) return 'Local-only mode'
+      if (backendConfig?.useEmulators) return signedInEmail ? 'Firebase emulator connected' : 'Firebase emulator'
+      return signedInEmail ? 'Firebase connected' : 'Firebase configured'
+    },
+    [backendConfig?.useEmulators, configured, signedInEmail],
   )
 
   useEffect(() => {
@@ -69,7 +74,7 @@ export default function BackendPanel() {
 
   async function ensureBackendPermission(): Promise<void> {
     if (!extensionMode) return
-    const config = getBackendConfig()
+    const config = backendConfig
     if (!config) throw new Error('Firebase backend chưa được cấu hình.')
     const permission = await requestExternalOriginPermissions(firebaseRequiredOrigins(config))
     if (!permission.ok) throw new Error(permission.error)
@@ -170,7 +175,10 @@ export default function BackendPanel() {
       <div className="panel-head">
         <div>
           <h3>Firebase Backend & Sync</h3>
-          <p>Firebase Auth + Cloud Firestore cho cấu hình cloud. Browser runtime vẫn chạy local-first.</p>
+          <p>
+            Firebase Auth + Cloud Firestore cho cấu hình cloud. Browser runtime vẫn chạy local-first.
+            {backendConfig?.useEmulators ? ' Đang dùng Firebase Emulator Suite.' : ''}
+          </p>
         </div>
         <span className={configured ? 'backend-state connected' : 'backend-state local'}>{modeLabel}</span>
       </div>
@@ -222,8 +230,8 @@ export default function BackendPanel() {
 
       <div className="backend-architecture">
         <div><strong>Local runtime</strong><span>Queue, locks, review candidates, session limits.</span></div>
-        <div><strong>Firebase Auth</strong><span>Email/password qua firebase/auth/web-extension trên MV3.</span></div>
-        <div><strong>Cloud Firestore</strong><span>Campaigns, AI profiles, schedules và browser instances.</span></div>
+        <div><strong>Firebase Auth</strong><span>{backendConfig?.useEmulators ? 'Auth Emulator' : 'Email/password qua firebase/auth/web-extension trên MV3.'}</span></div>
+        <div><strong>Cloud Firestore</strong><span>{backendConfig?.useEmulators ? 'Firestore Emulator cho dev/test local.' : 'Campaigns, AI profiles, schedules và browser instances.'}</span></div>
         <div><strong>Security Rules</strong><span>Mọi cloud document nằm dưới users/&lt;uid&gt; và chỉ chủ sở hữu truy cập.</span></div>
       </div>
 
