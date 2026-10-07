@@ -12,6 +12,7 @@ import { clearRuntimeEvents, listRuntimeEvents, logRuntimeEvent } from '../runti
 import { deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, upsertSchedule } from '../runtime/schedules'
 import { computeBackoffMs } from '../runtime/retry'
 import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
+import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken } from './storage'
 import type {
   BackgroundRequest,
@@ -28,14 +29,43 @@ const QUEUE_ALARM = 'autotool.queue.tick'
 const WORKER_ID = `service-worker:${chrome.runtime.id}`
 let activePreparationCandidateId: string | null = null
 
-async function getFacebookTab(): Promise<chrome.tabs.Tab | undefined> {
+async function getFacebookTab(expectedAccountContextKey?: string): Promise<chrome.tabs.Tab | undefined> {
   const currentWindowTabs = await chrome.tabs.query({ currentWindow: true })
-  const activeFacebook = currentWindowTabs.find((tab) => tab.active && isSupportedFacebookUrl(tab.url))
-  if (activeFacebook) return activeFacebook
-  const currentFacebook = currentWindowTabs.find((tab) => isSupportedFacebookUrl(tab.url))
-  if (currentFacebook) return currentFacebook
   const allTabs = await chrome.tabs.query({})
-  return allTabs.find((tab) => isSupportedFacebookUrl(tab.url))
+  const ordered = [
+    ...currentWindowTabs.filter((tab) => tab.active && isSupportedFacebookUrl(tab.url)),
+    ...currentWindowTabs.filter((tab) => !tab.active && isSupportedFacebookUrl(tab.url)),
+    ...allTabs.filter((tab) => !currentWindowTabs.some((current) => current.id === tab.id) && isSupportedFacebookUrl(tab.url)),
+  ]
+
+  if (!expectedAccountContextKey) return ordered[0]
+
+  for (const tab of ordered) {
+    if (!tab.id) continue
+    const context = await sendToContent<PlatformContext>(tab.id, { type: 'GET_PLATFORM_CONTEXT' })
+    if (context.ok && context.data.account?.key === expectedAccountContextKey) return tab
+  }
+
+  return undefined
+}
+
+async function getFacebookRuntimeContext(expectedAccountContextKey?: string): Promise<{
+  tab: chrome.tabs.Tab
+  context: PlatformContext
+  diagnostic: AdapterDiagnostic
+} | undefined> {
+  const tab = await getFacebookTab(expectedAccountContextKey)
+  if (!tab?.id) return undefined
+
+  const [context, diagnostic] = await Promise.all([
+    sendToContent<PlatformContext>(tab.id, { type: 'GET_PLATFORM_CONTEXT' }),
+    sendToContent<AdapterDiagnostic>(tab.id, { type: 'GET_ADAPTER_DIAGNOSTIC' }),
+  ])
+
+  if (!context.ok || !diagnostic.ok) return undefined
+  if (expectedAccountContextKey && context.data.account?.key !== expectedAccountContextKey) return undefined
+
+  return { tab, context: context.data, diagnostic: diagnostic.data }
 }
 
 async function sendToContent<T>(tabId: number, request: ContentRequest): Promise<ExtensionResponse<T>> {
@@ -87,7 +117,8 @@ async function ensureAutomationAllowed(): Promise<void> {
 }
 
 async function getRuntimeStatus(): Promise<RuntimeStatus> {
-  const activeTab = await getFacebookTab()
+  const runtimeContext = await getFacebookRuntimeContext()
+  const activeTab = runtimeContext?.tab
   const candidates = await listCandidates(['READY_FOR_REVIEW', 'APPROVED', 'PREPARING'])
   const [settings, sessionActions, schedules, events] = await Promise.all([
     getSettings(),
@@ -106,6 +137,8 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
           supported: isSupportedFacebookUrl(activeTab.url),
         }
       : undefined,
+    platformContext: runtimeContext?.context,
+    adapterDiagnostic: runtimeContext?.diagnostic,
     queuedJobs: await countJobs(),
     reviewCandidates: candidates.length,
     enabledSchedules: schedules.filter((schedule) => schedule.enabled).length,
@@ -116,18 +149,31 @@ async function getRuntimeStatus(): Promise<RuntimeStatus> {
   }
 }
 
-async function scanActiveTab(limit?: number): Promise<ExtensionResponse<FeedPost[]>> {
-  const activeTab = await getFacebookTab()
-  if (!activeTab?.id) return { ok: false, error: 'Không tìm thấy tab đang hoạt động.' }
-  if (!isSupportedFacebookUrl(activeTab.url)) {
-    return { ok: false, error: 'Hãy mở facebook.com trên tab hiện tại trước khi quét.' }
+async function scanActiveTab(
+  limit?: number,
+  expectedAccountContextKey?: string,
+): Promise<ExtensionResponse<FeedPost[]>> {
+  const runtimeContext = await getFacebookRuntimeContext(expectedAccountContextKey)
+  if (!runtimeContext?.tab.id) {
+    return {
+      ok: false,
+      error: expectedAccountContextKey
+        ? 'Không tìm thấy tab Facebook đúng account context đã bind.'
+        : 'Không tìm thấy tab Facebook khả dụng.',
+    }
   }
-  return sendToContent<FeedPost[]>(activeTab.id, { type: 'SCAN_FEED', limit })
+  if (expectedAccountContextKey && runtimeContext.context.account?.key !== expectedAccountContextKey) {
+    return { ok: false, error: 'Account context hiện tại không khớp với job/schedule.' }
+  }
+  return sendToContent<FeedPost[]>(runtimeContext.tab.id, { type: 'SCAN_FEED', limit })
 }
 
-async function createReviewCandidates(limit = 10): Promise<ReviewCandidate[]> {
+async function createReviewCandidates(
+  limit = 10,
+  expectedAccountContextKey?: string,
+): Promise<ReviewCandidate[]> {
   await ensureAutomationAllowed()
-  const scan = await scanActiveTab(limit)
+  const scan = await scanActiveTab(limit, expectedAccountContextKey)
   if (!scan.ok) throw new Error(scan.error)
 
   const created: ReviewCandidate[] = []
@@ -196,10 +242,21 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     throw new AutomationError('LOCKED', `Đang chuẩn bị candidate ${activePreparationCandidateId}. Hãy chờ tác vụ đó hoàn tất.`)
   }
 
+  const candidate = await getCandidate(candidateId)
+  if (!candidate) throw new Error('Không tìm thấy review candidate.')
+  const expectedAccountContextKey = candidate.post.accountContextKey
+  if (!expectedAccountContextKey) {
+    throw new AutomationError(
+      'INVALID_STATE',
+      'Candidate cũ chưa có account context. Hãy quét lại bài trước khi chuẩn bị comment.',
+    )
+  }
+
+  const resourceKey = `facebook:${expectedAccountContextKey}`
   const lockOwner = `review:${candidateId}`
-  const locked = await acquireLock('facebook:active-tab', lockOwner, 2 * 60_000)
+  const locked = await acquireLock(resourceKey, lockOwner, 2 * 60_000)
   if (!locked) {
-    throw new AutomationError('LOCKED', 'Browser runtime đang bận với tác vụ khác. Hãy thử lại sau.')
+    throw new AutomationError('LOCKED', 'Browser runtime của account này đang bận. Hãy thử lại sau.')
   }
 
   activePreparationCandidateId = candidateId
@@ -212,14 +269,17 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
       throw new AutomationError('INVALID_STATE', `Đã đạt giới hạn ${settings.maxActionsPerSession} thao tác trong phiên này.`)
     }
 
-    const approved = await transitionCandidate(candidateId, 'PREPARING')
-    const activeTab = await getFacebookTab()
-    if (!activeTab?.id) throw new AutomationError('TAB_NOT_FOUND', 'Không tìm thấy tab đang hoạt động.', true)
-    if (!isSupportedFacebookUrl(activeTab.url)) {
-      throw new AutomationError('WRONG_PAGE', 'Tab hiện tại không phải Facebook.', true)
+    const runtimeContext = await getFacebookRuntimeContext(expectedAccountContextKey)
+    if (!runtimeContext?.tab.id || !runtimeContext.context.account?.verified) {
+      throw new AutomationError(
+        'WRONG_PAGE',
+        'Không xác minh được tab Facebook đúng account context của candidate.',
+        true,
+      )
     }
 
-    const result = await sendToContent<PrepareCommentResult>(activeTab.id, {
+    const approved = await transitionCandidate(candidateId, 'PREPARING')
+    const result = await sendToContent<PrepareCommentResult>(runtimeContext.tab.id, {
       type: 'PREPARE_COMMENT',
       postId: approved.post.id,
       comment: approved.draft.text,
@@ -230,7 +290,11 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     const prepared = await patchCandidate(candidateId, { state: 'PREPARED', error: undefined })
     if (!prepared) throw new Error('Không thể lưu trạng thái PREPARED.')
     await incrementSessionActionCount()
-    await logRuntimeEvent('INFO', 'REVIEW', 'Đã điền nội dung đã duyệt vào composer. Người dùng vẫn cần tự bấm Gửi.')
+    await logRuntimeEvent(
+      'INFO',
+      'REVIEW',
+      `Đã điền nội dung vào composer của account "${runtimeContext.context.account.label}". Người dùng vẫn cần tự bấm Gửi.`,
+    )
     return prepared
   } catch (error) {
     const classified = classifyAutomationError(error)
@@ -239,7 +303,7 @@ async function prepareApprovedCandidate(candidateId: string): Promise<ReviewCand
     throw classified
   } finally {
     activePreparationCandidateId = null
-    await releaseLock('facebook:active-tab', lockOwner)
+    await releaseLock(resourceKey, lockOwner)
   }
 }
 
@@ -251,8 +315,13 @@ async function materializeSchedules(now = Date.now()): Promise<void> {
     await enqueueJob({
       type: 'CREATE_REVIEW_CANDIDATES',
       dedupeKey: `schedule:${schedule.id}:${bucket}`,
-      resourceKey: 'facebook:active-tab',
-      payload: { limit: schedule.maxPosts, scheduleId: schedule.id, scheduleName: schedule.name },
+      resourceKey: `facebook:${schedule.accountBinding!.key}`,
+      payload: {
+        limit: schedule.maxPosts,
+        scheduleId: schedule.id,
+        scheduleName: schedule.name,
+        expectedAccountContextKey: schedule.accountBinding!.key,
+      },
       scheduledAt: now,
       maxAttempts: 4,
     })
@@ -284,7 +353,10 @@ async function processQueueTick(): Promise<void> {
 
     try {
       if (job.type === 'SCAN_FEED') {
-        const result = await scanActiveTab(Number(job.payload.limit ?? 20))
+        const result = await scanActiveTab(
+          Number(job.payload.limit ?? 20),
+          typeof job.payload.expectedAccountContextKey === 'string' ? job.payload.expectedAccountContextKey : undefined,
+        )
         if (!result.ok) throw new Error(result.error)
         await updateJob(job.id, {
           state: 'SUCCESS',
@@ -295,7 +367,10 @@ async function processQueueTick(): Promise<void> {
         })
         await logRuntimeEvent('INFO', 'QUEUE', `Quét feed thành công: ${result.data.length} bài.`)
       } else if (job.type === 'CREATE_REVIEW_CANDIDATES') {
-        const candidates = await createReviewCandidates(Number(job.payload.limit ?? 10))
+        const candidates = await createReviewCandidates(
+          Number(job.payload.limit ?? 10),
+          typeof job.payload.expectedAccountContextKey === 'string' ? job.payload.expectedAccountContextKey : undefined,
+        )
         await updateJob(job.id, {
           state: 'SUCCESS',
           payload: { ...job.payload, candidateCount: candidates.length },
@@ -363,12 +438,29 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         sendResponse(response)
         return
       }
+      if (message.type === 'GET_PLATFORM_CONTEXT') {
+        const runtimeContext = await getFacebookRuntimeContext()
+        if (!runtimeContext) throw new Error('Không lấy được Facebook platform context.')
+        const response: ExtensionResponse<PlatformContext> = { ok: true, data: runtimeContext.context }
+        sendResponse(response)
+        return
+      }
+      if (message.type === 'GET_ADAPTER_DIAGNOSTIC') {
+        const runtimeContext = await getFacebookRuntimeContext()
+        if (!runtimeContext) throw new Error('Không lấy được Facebook adapter diagnostic.')
+        const response: ExtensionResponse<AdapterDiagnostic> = { ok: true, data: runtimeContext.diagnostic }
+        sendResponse(response)
+        return
+      }
       if (message.type === 'SCAN_ACTIVE_TAB') {
-        sendResponse(await scanActiveTab(message.limit))
+        sendResponse(await scanActiveTab(message.limit, message.expectedAccountContextKey))
         return
       }
       if (message.type === 'CREATE_REVIEW_CANDIDATES') {
-        const response: ExtensionResponse<ReviewCandidate[]> = { ok: true, data: await createReviewCandidates(message.limit) }
+        const response: ExtensionResponse<ReviewCandidate[]> = {
+          ok: true,
+          data: await createReviewCandidates(message.limit, message.expectedAccountContextKey),
+        }
         sendResponse(response)
         return
       }
@@ -463,8 +555,24 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SCHEDULE_UPSERT') {
-        const schedule = await upsertSchedule(message.schedule)
-        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã lưu lịch "${schedule.name}".`)
+        const runtimeContext = await getFacebookRuntimeContext()
+        const account = runtimeContext?.context.account
+        if (!account?.verified) {
+          throw new Error('Chưa xác minh được account context. Hãy mở Facebook đúng tài khoản và thử lại.')
+        }
+        const schedule = await upsertSchedule({
+          ...message.schedule,
+          accountBinding: {
+            key: account.key,
+            label: account.label,
+            profileUrl: account.profileUrl,
+          },
+        })
+        await logRuntimeEvent(
+          'INFO',
+          'SCHEDULER',
+          `Đã bind lịch "${schedule.name}" với account "${account.label}".`,
+        )
         const response: ExtensionResponse<ReviewSchedule> = { ok: true, data: schedule }
         sendResponse(response)
         return
@@ -478,15 +586,29 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
       if (message.type === 'SCHEDULE_RUN_NOW') {
         const schedule = (await listSchedules()).find((item) => item.id === message.scheduleId)
         if (!schedule) throw new Error('Không tìm thấy lịch chạy.')
+        if (!schedule.accountBinding) throw new Error('Lịch cũ chưa bind account context. Hãy sửa và lưu lại lịch.')
+        const runtimeContext = await getFacebookRuntimeContext(schedule.accountBinding.key)
+        if (!runtimeContext?.context.account?.verified) {
+          throw new Error('Không tìm thấy tab Facebook đúng account đã bind cho lịch.')
+        }
         await enqueueJob({
           type: 'CREATE_REVIEW_CANDIDATES',
           dedupeKey: `manual-schedule:${schedule.id}:${crypto.randomUUID()}`,
-          resourceKey: 'facebook:active-tab',
-          payload: { limit: schedule.maxPosts, scheduleId: schedule.id, scheduleName: schedule.name },
+          resourceKey: `facebook:${schedule.accountBinding.key}`,
+          payload: {
+            limit: schedule.maxPosts,
+            scheduleId: schedule.id,
+            scheduleName: schedule.name,
+            expectedAccountContextKey: schedule.accountBinding.key,
+          },
           scheduledAt: Date.now(),
           maxAttempts: 4,
         })
-        await logRuntimeEvent('INFO', 'SCHEDULER', `Đã yêu cầu chạy ngay lịch "${schedule.name}".`)
+        await logRuntimeEvent(
+          'INFO',
+          'SCHEDULER',
+          `Đã yêu cầu chạy lịch "${schedule.name}" cho account "${schedule.accountBinding.label}".`,
+        )
         await processQueueTick()
         sendResponse({ ok: true, data: { queued: true } })
         return

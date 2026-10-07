@@ -5,72 +5,71 @@
 ### Phase 1 — UI shell
 - Dashboard
 - Campaign list
-- 5-step campaign wizard
-- Accounts & profiles
+- Campaign wizard
 - AI/content UI
-- Scheduler shell
-- Queue
-- Logs
-- Analytics
-- Settings
+- Scheduler/queue/logs/settings shells
 
 ### Phase 2 — Chrome Extension MV3 core
 - Manifest V3
 - background service worker
 - Facebook content script
 - typed messaging
-- IndexedDB and chrome.storage
-- runtime diagnostics
-- CI/build verification
+- IndexedDB/chrome.storage
+- build verification
 
 ### Phase 3 — Automation Engine MVP
 - deterministic review state machine
-- review candidate persistence
+- candidate persistence
 - approve / reject / retry
-- AI draft edit/regenerate
-- prepare approved text in Facebook composer
-- verification
-- Emergency Stop
-- session action limit
+- draft edit/regenerate
+- approved-text composer preparation
+- Emergency Stop and session limits
 
 ### Phase 4 — AI Gateway
 - local/gateway mode
 - Cloudflare Worker bundle
 - provider routing
-- server-side provider secrets
 - prompt versioning
 - structured output validation
 - token/cost metadata
 
-### Phase 5 — Queue & Scheduler hardening — DONE
-- IndexedDB runtime schema v3
+### Phase 5 — Queue & Scheduler hardening
 - durable job leases
-- stale PROCESSING job recovery
-- durable resource locks
-- browser/review lock sharing
-- capped exponential retry backoff
-- persisted review-scan schedules
-- 15-minute minimum schedule interval
-- configurable daily run window
-- manual Run Now
-- Facebook tab discovery instead of active-dashboard-tab assumption
-- real runtime event log
-- scheduler/queue/review event categories
-- scheduler UI backed by runtime data
-- runtime logs UI backed by runtime data
-- runtime status schedule/error counters
+- stale worker recovery
+- resource locks
+- retry backoff
+- persisted schedules
+- runtime events
+- real scheduler/log UI
+
+### Phase 6 — Platform adapters & account context — DONE
+- platform adapter contract and registry
+- centralized Facebook selectors
+- `facebook-web-v1` adapter
+- Feed / Group / Page / Post surface classification
+- account-context detection from navigation/header evidence
+- stable account context keys
+- adapter diagnostics and health status
+- live Browser Context UI
+- fake account table removed
+- schedule binding to verified account context
+- per-account queue resource keys
+- scheduled tab lookup by expected account context
+- review candidate account/surface metadata
+- approved-comment preparation requires matching verified context
+- old unbound schedules are prevented from running until rebound
 
 ## Current product version
 
-0.4.0
+0.5.0
 
 ## Next
 
-### Phase 6 — Platform adapters & account context
-1. Introduce adapter contracts rather than scattered DOM selectors.
-2. Add Facebook feed compatibility diagnostics.
-3. Add explicit account/profile context detection.
-4. Bind schedules/jobs to a verified account context.
-5. Add group/page read adapters where the user has access.
-6. Preserve human review and manual final submission.
-7. Add adapter health status to the dashboard.
+### Phase 7 — Backend data layer
+1. Add authentication and browser-instance identity.
+2. Add Supabase/PostgreSQL persistence.
+3. Sync campaigns, AI profiles and schedule definitions.
+4. Keep browser-only session state local.
+5. Add analytics event aggregation.
+6. Add prompt/profile sharing without sharing provider API keys.
+7. Define local-first/offline behavior when backend is unavailable.

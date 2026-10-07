@@ -9,37 +9,34 @@
 ## Phase 4 — AI Gateway — DONE
 
 ## Phase 5 — Queue & Scheduler hardening — DONE
-- durable IndexedDB job leases
-- stale worker recovery
-- durable runtime resource locks
-- exponential retry/backoff
-- persistent review-scan schedules
-- daily scheduling windows
-- Run Now support
-- Facebook tab discovery
-- real runtime event log
-- scheduler/log UI connected to the extension runtime
 
-## Phase 6 — Platform adapters & account context — NEXT
-- adapter interface
-- feed adapter refactor
-- selector compatibility diagnostics
-- account/profile context detection
-- verified context binding for jobs and schedules
-- group/page read adapters
-- adapter status UI
+## Phase 6 — Platform adapters & account context — DONE
+- platform adapter interface and registry
+- centralized Facebook selectors
+- surface-aware Facebook adapter
+- DOM compatibility diagnostics
+- account-context detection
+- schedule/account binding
+- per-account resource locks
+- account-aware Facebook tab selection
+- review candidate context metadata
+- context verification before approved composer preparation
+- runtime account/adapter status UI
 
-## Phase 7 — Backend data layer
+## Phase 7 — Backend data layer — NEXT
+- Supabase/PostgreSQL schema
 - authentication
-- Supabase/PostgreSQL
-- campaign persistence/sync
-- shared AI/profile settings
-- analytics aggregation
 - browser-instance registration
+- campaign persistence
+- AI profile/prompt persistence
+- schedule definition sync
+- analytics events
+- local-first conflict policy
 
 ## Phase 8 — Testing and release
 - browser integration tests
+- fixture-based adapter tests
 - packaged extension
 - release channels
 - observability
-- migrations/upgrades
+- migration strategy

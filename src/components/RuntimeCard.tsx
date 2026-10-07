@@ -79,9 +79,15 @@ export default function RuntimeCard() {
           <strong>{status?.activeTab?.title ?? (extensionMode ? 'Chưa xác định' : 'Chỉ khả dụng khi load extension')}</strong>
         </div>
         <div className="runtime-stat">
-          <span>Facebook</span>
-          <strong className={status?.activeTab?.supported ? 'ok-text' : ''}>
-            {status ? (status.activeTab?.supported ? 'Sẵn sàng' : 'Chưa mở Facebook') : '—'}
+          <span>Account context</span>
+          <strong className={status?.platformContext?.account?.verified ? 'ok-text' : ''}>
+            {status?.platformContext?.account?.label ?? 'Chưa nhận diện'}
+          </strong>
+        </div>
+        <div className="runtime-stat">
+          <span>Surface / Adapter</span>
+          <strong>
+            {status ? (status.platformContext?.surface ?? 'UNKNOWN') + ' · ' + (status.adapterDiagnostic?.health ?? '—') : '—'}
           </strong>
         </div>
         <div className="runtime-stat">

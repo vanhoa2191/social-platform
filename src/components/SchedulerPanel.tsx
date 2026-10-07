@@ -80,6 +80,7 @@ export default function SchedulerPanel() {
       maxPosts: item.maxPosts,
       startHour: item.startHour,
       endHour: item.endHour,
+      accountBinding: item.accountBinding,
     })
   }
 
@@ -109,7 +110,7 @@ export default function SchedulerPanel() {
         <div className="panel-head">
           <div>
             <h3>{editingId ? 'Sửa lịch' : 'Tạo lịch quét & tạo nháp'}</h3>
-            <p>Lịch chỉ tạo nội dung chờ duyệt, không tự gửi tương tác.</p>
+            <p>Khi lưu, lịch được bind tự động vào account context đang được xác minh trên Facebook.</p>
           </div>
           <span className="type-pill">{enabledCount} lịch đang bật</span>
         </div>
@@ -229,6 +230,9 @@ export default function SchedulerPanel() {
                     <span>
                       mỗi {item.intervalMinutes} phút · tối đa {item.maxPosts} bài · {item.startHour}:00–{item.endHour}:00
                     </span>
+                    <span className={item.accountBinding ? 'bound-account' : 'unbound-account'}>
+                      {item.accountBinding ? '↳ ' + item.accountBinding.label : '! Lịch cũ chưa bind account context'}
+                    </span>
                   </div>
                   <span className={item.enabled ? 'schedule-enabled' : 'schedule-disabled'}>
                     {item.enabled ? '● Đang bật' : 'Tạm dừng'}
@@ -241,7 +245,7 @@ export default function SchedulerPanel() {
                 <div className="review-card-actions">
                   <button className="secondary" disabled={Boolean(busy)} onClick={() => edit(item)}>Sửa</button>
                   <button className="secondary" disabled={Boolean(busy)} onClick={() => void remove(item.id)}>Xóa</button>
-                  <button className="primary" disabled={Boolean(busy)} onClick={() => void runNow(item.id)}>
+                  <button className="primary" disabled={Boolean(busy) || !item.accountBinding} onClick={() => void runNow(item.id)}>
                     {busy === item.id + ':run' ? 'Đang chạy…' : '▶ Chạy ngay'}
                   </button>
                 </div>

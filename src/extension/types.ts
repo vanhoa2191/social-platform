@@ -1,5 +1,6 @@
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
+import type { AccountContext, AdapterDiagnostic, PlatformContext, PlatformSurface } from '../platform/types'
 import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
 
 export type JobState =
@@ -45,6 +46,9 @@ export interface FeedPost {
   sourceUrl: string
   permalink?: string
   capturedAt: number
+  surface?: PlatformSurface
+  accountContextKey?: string
+  accountLabel?: string
 }
 
 export interface PageContext {
@@ -62,6 +66,8 @@ export interface RuntimeStatus {
     url?: string
     supported: boolean
   }
+  platformContext?: PlatformContext
+  adapterDiagnostic?: AdapterDiagnostic
   queuedJobs: number
   reviewCandidates: number
   enabledSchedules: number
@@ -85,8 +91,10 @@ export interface AiSettingsView {
 export type BackgroundRequest =
   | { type: 'PING' }
   | { type: 'GET_RUNTIME_STATUS' }
-  | { type: 'SCAN_ACTIVE_TAB'; limit?: number }
-  | { type: 'CREATE_REVIEW_CANDIDATES'; limit?: number }
+  | { type: 'GET_PLATFORM_CONTEXT' }
+  | { type: 'GET_ADAPTER_DIAGNOSTIC' }
+  | { type: 'SCAN_ACTIVE_TAB'; limit?: number; expectedAccountContextKey?: string }
+  | { type: 'CREATE_REVIEW_CANDIDATES'; limit?: number; expectedAccountContextKey?: string }
   | { type: 'REVIEW_LIST'; states?: CandidateState[] }
   | { type: 'REVIEW_APPROVE'; candidateId: string }
   | { type: 'REVIEW_REJECT'; candidateId: string }
@@ -114,6 +122,8 @@ export type BackgroundRequest =
 export type ContentRequest =
   | { type: 'CONTENT_PING' }
   | { type: 'GET_PAGE_CONTEXT' }
+  | { type: 'GET_PLATFORM_CONTEXT' }
+  | { type: 'GET_ADAPTER_DIAGNOSTIC' }
   | { type: 'SCAN_FEED'; limit?: number }
   | { type: 'PREPARE_COMMENT'; postId: string; comment: string }
 
@@ -121,6 +131,9 @@ export type ReviewListResponse = ReviewCandidate[]
 export type GatewayHealth = AiHealthResponse
 export type ScheduleListResponse = ReviewSchedule[]
 export type RuntimeEventListResponse = RuntimeEvent[]
+export type PlatformContextResponse = PlatformContext
+export type AdapterDiagnosticResponse = AdapterDiagnostic
+export type AccountContextResponse = AccountContext
 
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }

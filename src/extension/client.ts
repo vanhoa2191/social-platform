@@ -2,6 +2,7 @@ import { gatewayOriginPattern } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
 import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent } from '../runtime/types'
+import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
 
 function runtimeAvailable(): boolean {
@@ -40,8 +41,16 @@ export function getRuntimeStatus(): Promise<ExtensionResponse<RuntimeStatus>> {
   return send<RuntimeStatus>({ type: 'GET_RUNTIME_STATUS' })
 }
 
-export function scanActiveFacebookTab(limit = 20): Promise<ExtensionResponse<FeedPost[]>> {
-  return send<FeedPost[]>({ type: 'SCAN_ACTIVE_TAB', limit })
+export function getPlatformContext(): Promise<ExtensionResponse<PlatformContext>> {
+  return send<PlatformContext>({ type: 'GET_PLATFORM_CONTEXT' })
+}
+
+export function getAdapterDiagnostic(): Promise<ExtensionResponse<AdapterDiagnostic>> {
+  return send<AdapterDiagnostic>({ type: 'GET_ADAPTER_DIAGNOSTIC' })
+}
+
+export function scanActiveFacebookTab(limit = 20, expectedAccountContextKey?: string): Promise<ExtensionResponse<FeedPost[]>> {
+  return send<FeedPost[]>({ type: 'SCAN_ACTIVE_TAB', limit, expectedAccountContextKey })
 }
 
 export function createReviewCandidates(limit = 10): Promise<ExtensionResponse<ReviewCandidate[]>> {

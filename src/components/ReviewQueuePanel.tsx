@@ -221,7 +221,11 @@ export default function ReviewQueuePanel() {
                 <div className="review-source">
                   <div>
                     <strong>{item.post.author || 'Bài viết Facebook'}</strong>
-                    <span>{item.post.permalink ? 'Có permalink' : item.post.id}</span>
+                    <span>
+                      {item.post.accountLabel ? item.post.accountLabel + ' · ' : ''}
+                      {item.post.surface ? item.post.surface + ' · ' : ''}
+                      {item.post.permalink ? 'Có permalink' : item.post.id}
+                    </span>
                   </div>
                   <span className={'review-state ' + item.state.toLowerCase()}>{stateLabel[item.state]}</span>
                 </div>

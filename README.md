@@ -2,52 +2,47 @@
 
 Campaign-centric UI, Chrome Extension MV3 runtime and optional server-side AI Gateway.
 
-Current version: **0.4.0**
+Current version: **0.5.0**
 
-## Current capabilities
-
-### Product UI
-- dashboard
-- campaign management
-- accounts/profiles shell
-- AI settings
-- content library
-- real persisted scheduler
-- review queue
-- real runtime logs
-- analytics/settings shell
+## Implemented
 
 ### Chrome runtime
 - Manifest V3
 - background service worker
-- Facebook content script
-- typed messages
-- IndexedDB runtime database
-- durable queue leases
-- durable browser resource locks
-- exponential retry/backoff
-- persisted schedules
-- chrome.storage safety/settings
+- typed runtime messaging
+- IndexedDB queue/review/schedule/event storage
+- durable job leases
+- per-account browser resource locks
+- retry/backoff
 - Emergency Stop
-- session action limit
+- session action limits
+
+### Facebook platform adapter
+- centralized DOM selectors
+- Feed / Group / Page / Post surface detection
+- visible article scanning
+- account-context detection
+- adapter compatibility diagnostics
+- account-aware tab selection
+- schedule binding to account context
 
 ### Controlled review workflow
-- find an open Facebook tab
-- scan visible posts
+- scan visible Facebook content
 - create AI drafts
-- edit/regenerate/reject/approve
-- prepare approved text in the composer
-- verify inserted text
+- edit/regenerate/reject/approve drafts
+- preserve account/surface metadata on candidates
+- locate the matching account context before composer preparation
+- insert approved text
 - user manually clicks **Gửi**
 
 ### AI Gateway
 - local mock mode
 - Cloudflare Worker bundle
 - OpenAI-compatible / DeepSeek / Anthropic / Gemini adapters
-- server-side provider keys
-- prompt versions
-- JSON validation
-- token/cost metadata
+- server-side provider API keys
+- prompt versioning
+- structured JSON validation
+- usage/cost metadata
 
 ## Development
 
@@ -68,13 +63,7 @@ npm run check
 npm run build
 ```
 
-Load `dist/` from `chrome://extensions` with **Load unpacked**.
-
-## Build AI Gateway
-
-```bash
-npm run build:gateway
-```
+Load `dist/` from `chrome://extensions` using **Load unpacked**.
 
 ## Documentation
 
@@ -84,5 +73,6 @@ npm run build:gateway
 - `docs/AUTOMATION_MVP.md`
 - `docs/AI_GATEWAY.md`
 - `docs/QUEUE_SCHEDULER.md`
+- `docs/PLATFORM_ADAPTERS.md`
 
 The product keeps final social-platform submission under explicit user control.

@@ -1,5 +1,5 @@
 export type RuntimeEventLevel = 'INFO' | 'WARN' | 'ERROR'
-export type RuntimeEventCategory = 'SYSTEM' | 'QUEUE' | 'SCHEDULER' | 'REVIEW'
+export type RuntimeEventCategory = 'SYSTEM' | 'QUEUE' | 'SCHEDULER' | 'REVIEW' | 'ADAPTER'
 
 export interface RuntimeEvent {
   id: string
@@ -17,6 +17,12 @@ export interface RuntimeLock {
   updatedAt: number
 }
 
+export interface BoundAccountContext {
+  key: string
+  label: string
+  profileUrl?: string
+}
+
 export interface ReviewSchedule {
   id: string
   name: string
@@ -25,6 +31,7 @@ export interface ReviewSchedule {
   maxPosts: number
   startHour: number
   endHour: number
+  accountBinding?: BoundAccountContext
   nextRunAt: number
   lastRunAt?: number
   createdAt: number
@@ -39,4 +46,5 @@ export interface ReviewScheduleInput {
   maxPosts: number
   startHour: number
   endHour: number
+  accountBinding?: BoundAccountContext
 }

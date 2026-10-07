@@ -22,6 +22,7 @@ export async function upsertSchedule(input: ReviewScheduleInput): Promise<Review
     maxPosts: Math.max(1, Math.min(20, input.maxPosts)),
     startHour: Math.max(0, Math.min(23, input.startHour)),
     endHour: Math.max(0, Math.min(23, input.endHour)),
+    accountBinding: input.accountBinding ?? existing?.accountBinding,
     nextRunAt: nextRun(input.intervalMinutes, now),
     lastRunAt: existing?.lastRunAt,
     createdAt: existing?.createdAt ?? now,
@@ -68,5 +69,5 @@ export async function markScheduleRun(id: string, now = Date.now()): Promise<Rev
 }
 
 export function scheduleCanRun(schedule: ReviewSchedule, now = new Date()): boolean {
-  return schedule.enabled && schedule.nextRunAt <= now.getTime() && withinLocalWindow(now, schedule.startHour, schedule.endHour)
+  return Boolean(schedule.accountBinding) && schedule.enabled && schedule.nextRunAt <= now.getTime() && withinLocalWindow(now, schedule.startHour, schedule.endHour)
 }
