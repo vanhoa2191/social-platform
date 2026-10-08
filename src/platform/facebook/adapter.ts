@@ -36,11 +36,31 @@ function guessPermalink(article: Element): string | undefined {
     })?.href
 }
 
-function postIdentity(node: Element): { id: string; text: string } {
+function canonicalPostKey(permalink?: string): string | undefined {
+  if (!permalink) return undefined
+  try {
+    const url = new URL(permalink, window.location.href)
+    const storyId = url.searchParams.get('story_fbid')
+    if (storyId) return `story:${storyId}`
+    const match = url.pathname.match(/\/(?:posts|permalink|reel)\/([^/?#]+)/)
+    if (match?.[1]) return `path:${match[1]}`
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+function postIdentity(node: Element): { id: string; text: string; permalink?: string; stable: boolean } {
   const text = visibleText(node)
+  const permalink = guessPermalink(node)
+  const stableKey = canonicalPostKey(permalink)
   return {
     text,
-    id: fingerprint([text.slice(0, 600), window.location.hostname]),
+    permalink,
+    stable: Boolean(stableKey),
+    id: stableKey
+      ? `fb:${stableKey}`
+      : `fallback:${fingerprint([guessAuthor(node) ?? '', text.slice(0, 1200), window.location.hostname])}`,
   }
 }
 
@@ -119,7 +139,7 @@ function scan(limit = 20): FeedPost[] {
       text: identity.text,
       author: guessAuthor(node),
       sourceUrl: window.location.href,
-      permalink: guessPermalink(node),
+      permalink: identity.permalink,
       capturedAt: Date.now(),
       surface: context.surface,
       accountContextKey: context.account?.key,
@@ -140,7 +160,14 @@ function isCommentControl(element: Element): boolean {
 }
 
 function findPostElement(postId: string): HTMLElement | undefined {
-  return uniqueArticles().find((node) => postIdentity(node).id === postId)
+  if (!postId.startsWith('fb:')) {
+    throw new Error('Bài viết không có permalink ổn định; để an toàn, adapter không tự chuẩn bị bình luận cho bài này.')
+  }
+  const matches = uniqueArticles().filter((node) => postIdentity(node).id === postId)
+  if (matches.length > 1) {
+    throw new Error('Có nhiều bài viết trùng định danh trong DOM; đã dừng để tránh nhập nhầm bình luận.')
+  }
+  return matches[0]
 }
 
 async function prepareComment(postId: string, comment: string): Promise<PrepareCommentResult> {
@@ -155,27 +182,28 @@ async function prepareComment(postId: string, comment: string): Promise<PrepareC
   await new Promise((resolve) => window.setTimeout(resolve, 250))
 
   const composerSelector = facebookSelectors.composer.join(',')
-  const localComposer = article.querySelector<HTMLElement>(composerSelector)
-  const nearbyComposer = localComposer ?? Array.from(document.querySelectorAll<HTMLElement>(facebookSelectors.composer[0]))
-    .find((node) => {
-      const rect = node.getBoundingClientRect()
-      const articleRect = article.getBoundingClientRect()
-      return Math.abs(rect.top - articleRect.bottom) < 500
-    })
+  const localComposers = Array.from(article.querySelectorAll<HTMLElement>(composerSelector))
+    .filter((node) => node.getAttribute('aria-hidden') !== 'true')
+  if (localComposers.length !== 1) {
+    throw new Error(
+      localComposers.length === 0
+        ? 'Không xác định được ô bình luận thuộc đúng bài viết; đã dừng để tránh nhập nhầm.'
+        : 'Có nhiều ô bình luận trong cùng bài viết; đã dừng để tránh nhập nhầm.',
+    )
+  }
+  const composer = localComposers[0]
 
-  if (!nearbyComposer) throw new Error('Không tìm thấy ô bình luận. Adapter Facebook có thể cần cập nhật selector.')
-
-  nearbyComposer.focus()
-  nearbyComposer.textContent = comment
-  nearbyComposer.dispatchEvent(new InputEvent('input', {
+  composer.focus()
+  composer.textContent = comment
+  composer.dispatchEvent(new InputEvent('input', {
     bubbles: true,
     inputType: 'insertText',
     data: comment,
   }))
 
   await new Promise((resolve) => window.setTimeout(resolve, 80))
-  const composerText = normalizeText(nearbyComposer.innerText || nearbyComposer.textContent || '')
-  const prepared = composerText.includes(normalizeText(comment).slice(0, Math.min(24, comment.length)))
+  const composerText = normalizeText(composer.innerText || composer.textContent || '')
+  const prepared = composerText === normalizeText(comment)
 
   return { postId, prepared, composerText }
 }

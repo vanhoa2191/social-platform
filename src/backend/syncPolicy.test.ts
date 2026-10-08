@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveScheduleSync } from './syncPolicy'
+import { nextDefinitionRevision, resolveScheduleSync } from './syncPolicy'
 import type { RemoteScheduleRecord } from './types'
 
 function row(id: string, revision: number, overrides: Partial<RemoteScheduleRecord> = {}): RemoteScheduleRecord {
@@ -22,6 +22,11 @@ function row(id: string, revision: number, overrides: Partial<RemoteScheduleReco
 }
 
 describe('schedule sync conflict policy', () => {
+  it('rebases Keep Local above the newest revision', () => {
+    expect(nextDefinitionRevision(10, 11)).toBe(12)
+    expect(nextDefinitionRevision(20, 5)).toBe(21)
+  })
+
   it('pushes local-only/newer rows and ignores equal definitions', () => {
     const result = resolveScheduleSync(
       [row('new',1),row('equal',20),row('local-newer',30)],

@@ -64,6 +64,7 @@ describe('facebook adapter fixture integration', () => {
       <div role="article">
         <strong>Trần Minh</strong>
         <p>Đây là một bài viết đủ dài để test quy trình chuẩn bị bình luận trong composer mà không thực hiện thao tác gửi lên nền tảng.</p>
+        <a href="https://www.facebook.com/example/posts/999">2 giờ</a>
         <button aria-label="Bình luận">Bình luận</button>
         <div contenteditable="true" role="textbox"></div>
       </div>
@@ -77,6 +78,45 @@ describe('facebook adapter fixture integration', () => {
     expect(result.prepared).toBe(true)
     expect(result.composerText).toContain('Một bình luận đã được người dùng duyệt.')
     expect(win.document.querySelector('[contenteditable="true"]')?.textContent).toContain('Một bình luận')
+  })
+
+  it('keeps post identity stable when visible article text changes', async () => {
+    const win = installDom(`
+      <nav role="navigation">
+        <a aria-label="Profile" href="https://www.facebook.com/profile.php?id=123">Nguyễn Văn A</a>
+      </nav>
+      <div role="article">
+        <p>Đây là nội dung đủ dài để quét bài viết và sau đó mô phỏng bộ đếm hoặc nội dung phụ thay đổi trên giao diện Facebook.</p>
+        <a href="https://www.facebook.com/example/posts/777">2 giờ</a>
+        <button aria-label="Bình luận">Bình luận</button>
+        <div contenteditable="true" role="textbox"></div>
+      </div>
+    `)
+    const article = win.document.querySelector('[role="article"]')
+    ;(article as unknown as HTMLElement).scrollIntoView = () => undefined
+    const [post] = facebookAdapter.scan(1)
+    article?.querySelector('p')?.append(' 12 lượt thích')
+    const result = await facebookAdapter.prepareComment(post.id, 'Nội dung đã duyệt chính xác.')
+    expect(result.prepared).toBe(true)
+  })
+
+  it('does not fall back to a global composer from another post', async () => {
+    const win = installDom(`
+      <nav role="navigation">
+        <a aria-label="Profile" href="https://www.facebook.com/profile.php?id=123">Nguyễn Văn A</a>
+      </nav>
+      <div role="article">
+        <p>Bài viết mục tiêu đủ dài để quét nhưng cố ý không có composer cục bộ nhằm kiểm tra cơ chế fail closed.</p>
+        <a href="https://www.facebook.com/example/posts/888">2 giờ</a>
+        <button aria-label="Bình luận">Bình luận</button>
+      </div>
+      <div contenteditable="true" role="textbox" id="other-composer"></div>
+    `)
+    const article = win.document.querySelector('[role="article"]') as unknown as HTMLElement
+    article.scrollIntoView = () => undefined
+    const [post] = facebookAdapter.scan(1)
+    await expect(facebookAdapter.prepareComment(post.id, 'Không được nhập nhầm.')).rejects.toThrow('đã dừng')
+    expect(win.document.querySelector('#other-composer')?.textContent).toBe('')
   })
 
   it('reports degraded health when account evidence is missing', () => {
