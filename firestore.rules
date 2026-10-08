@@ -14,6 +14,37 @@ service cloud.firestore {
       return value is int && value >= 0 && value <= 23;
     }
 
+    function optionalText(value, maxLength) { return value == null || (value is string && value.size() <= maxLength); }
+
+    function validProfile(profileId) {
+      return hasOnly(['id', 'name', 'persona', 'promptVersion', 'config', 'revision', 'updatedAt'])
+        && request.resource.data.id == profileId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && optionalText(request.resource.data.get('persona', null), 2000)
+        && request.resource.data.promptVersion in ['comment-v1', 'comment-v2']
+        && request.resource.data.config is map
+        && request.resource.data.config.keys().hasOnly(['strategy', 'notes'])
+        && request.resource.data.revision is int
+        && request.resource.data.updatedAt is int;
+    }
+
+    function validContent(contentId) {
+      return hasOnly(['id', 'title', 'kind', 'body', 'tags', 'revision', 'updatedAt'])
+        && request.resource.data.id == contentId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.kind in ['prompt', 'template', 'note']
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 10000
+        && request.resource.data.tags is list
+        && request.resource.data.tags.size() <= 20
+        && request.resource.data.revision is int
+        && request.resource.data.updatedAt is int;
+    }
+
     match /users/{userId} {
       allow read, write: if false;
 
@@ -26,7 +57,8 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() <= 120
           && request.resource.data.extensionVersion is string
-          && request.resource.data.metadata.keys().hasOnly(['runtime']);
+          && request.resource.data.metadata.keys().hasOnly(['runtime'])
+          && request.resource.data.metadata.runtime in ['extension', 'web-preview'];
       }
 
       match /campaigns/{campaignId} {
@@ -44,19 +76,22 @@ service cloud.firestore {
 
       match /aiProfiles/{profileId} {
         allow read, delete: if isOwner(userId);
-        allow create, update: if isOwner(userId)
-          && hasOnly(['id', 'name', 'persona', 'promptVersion', 'config', 'revision', 'updatedAt'])
-          && request.resource.data.id == profileId
-          && request.resource.data.name is string
-          && request.resource.data.name.size() <= 200
-          && request.resource.data.promptVersion is string
-          && request.resource.data.revision is int
-          && request.resource.data.revision >= 1;
+        allow create: if isOwner(userId) && validProfile(profileId) && request.resource.data.revision >= 1;
+        allow update: if isOwner(userId) && validProfile(profileId)
+          && request.resource.data.revision > resource.data.revision;
+      }
+
+      match /contentItems/{contentId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId) && validContent(contentId) && request.resource.data.revision >= 1;
+        allow update: if isOwner(userId) && validContent(contentId)
+          && request.resource.data.revision > resource.data.revision;
       }
 
       match /schedules/{scheduleId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
+          && (resource == null || request.resource.data.revision > resource.data.revision)
           && hasOnly([
             'id', 'localScheduleId', 'browserInstanceId', 'name', 'enabled',
             'intervalMinutes', 'maxPosts', 'startHour', 'endHour',

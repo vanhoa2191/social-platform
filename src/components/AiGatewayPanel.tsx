@@ -93,7 +93,7 @@ export default function AiGatewayPanel() {
       <div className="panel-head">
         <div>
           <h3>AI Gateway</h3>
-          <p>API key của model nằm ở server. Extension chỉ giữ gateway token trong session.</p>
+          <p>API key của model nằm ở server. Production dùng Firebase ID token; shared token chỉ dành cho môi trường phát triển.</p>
         </div>
         <span className={'gateway-mode ' + settings.mode}>{modeLabel}</span>
       </div>
@@ -108,6 +108,15 @@ export default function AiGatewayPanel() {
           >
             <option value="local">Local mock — không tốn API</option>
             <option value="gateway">AI Gateway — dùng model thật</option>
+          </select>
+        </label>
+
+        <label>
+          Xác thực gateway
+          <select value={settings.authMode ?? 'firebase'} disabled={!extensionMode || !gatewayEnabled}
+            onChange={event => setSettings({ ...settings, authMode: event.target.value as AiGatewaySettings['authMode'] })}>
+            <option value="firebase">Firebase ID token (production)</option>
+            <option value="token">Shared token (dev)</option>
           </select>
         </label>
 
@@ -152,7 +161,7 @@ export default function AiGatewayPanel() {
           <input
             type="password"
             value={token}
-            disabled={!extensionMode || !gatewayEnabled}
+            disabled={!extensionMode || !gatewayEnabled || settings.authMode !== 'token'}
             placeholder={hasToken ? 'Để trống để giữ token hiện tại' : 'Bearer token của gateway'}
             onChange={(event) => setToken(event.target.value)}
           />

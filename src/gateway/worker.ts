@@ -1,8 +1,12 @@
+import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { getPromptTemplate } from '../ai/promptRegistry'
 import type { AiGatewayRequest, AiGatewayResponse, PromptVersion } from '../ai/contracts'
 
 interface Env {
   GATEWAY_TOKEN?: string
+  GATEWAY_AUTH_MODE?: 'firebase' | 'token'
+  FIREBASE_PROJECT_ID?: string
+  ALLOWED_ORIGINS?: string
   AI_PROVIDER?: 'mock' | 'openai' | 'deepseek' | 'anthropic' | 'gemini'
   AI_MODEL?: string
   AI_API_KEY?: string
@@ -28,39 +32,49 @@ function numberSetting(value: string | undefined, fallback: number, min: number,
   return Math.max(min, Math.min(max, parsed))
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'authorization, content-type',
-      'access-control-allow-methods': 'GET, POST, OPTIONS',
-    },
-  })
+const firebaseJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'))
+function corsHeaders(request: Request, env: Env): Record<string,string> {
+  const origin = request.headers.get('origin')
+  const allowlist = (env.ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim())
+  if (!origin || !allowlist.includes(origin)) return {}
+  return { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS', vary: 'Origin' }
 }
-
-function requireAuth(request: Request, env: Env): Response | undefined {
-  if (!env.GATEWAY_TOKEN) {
-    if ((env.AI_PROVIDER || 'mock') !== 'mock') return json({ error: 'Gateway authentication is not configured' }, 503)
-    return undefined
+function json(request: Request, env: Env, data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders(request, env) } })
+}
+async function requireAuth(request: Request, env: Env): Promise<{ identity: string; error?: Response }> {
+  const mode = env.GATEWAY_AUTH_MODE ?? (env.FIREBASE_PROJECT_ID ? 'firebase' : 'token')
+  const header = request.headers.get('authorization') ?? ''
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (mode === 'firebase') {
+    if (!env.FIREBASE_PROJECT_ID) return { identity: '', error: json(request, env, { error: 'Firebase project missing' }, 503) }
+    if (!token) return { identity: '', error: json(request, env, { error: 'Unauthorized' }, 401) }
+    try {
+      const projectId = env.FIREBASE_PROJECT_ID
+      const { payload } = await jwtVerify(token, firebaseJwks, { algorithms: ['RS256'], audience: projectId, issuer: 'https://securetoken.google.com/' + projectId })
+      if (!payload.sub || typeof payload.auth_time !== 'number') throw new Error('Invalid Firebase claims')
+      return { identity: 'firebase:' + payload.sub }
+    } catch {
+      return { identity: '', error: json(request, env, { error: 'Invalid Firebase ID token' }, 401) }
+    }
   }
-  const expected = `Bearer ${env.GATEWAY_TOKEN}`
-  if (request.headers.get('authorization') !== expected) return json({ error: 'Unauthorized' }, 401)
-  return undefined
+  if (!env.GATEWAY_TOKEN) {
+    if ((env.AI_PROVIDER || 'mock') !== 'mock') return { identity: '', error: json(request, env, { error: 'Gateway authentication missing' }, 503) }
+    return { identity: 'mock-local' }
+  }
+  if (token !== env.GATEWAY_TOKEN) return { identity: '', error: json(request, env, { error: 'Unauthorized' }, 401) }
+  return { identity: 'shared-token' }
 }
-
-function rateLimit(request: Request, env: Env): Response | undefined {
+function rateLimit(request: Request, env: Env, identity: string): Response | undefined {
   const max = numberSetting(env.RATE_LIMIT_PER_MINUTE, 30, 1, 300)
   const now = Date.now()
-  const key = (request.headers.get('cf-connecting-ip') ?? 'unknown') + ':' + (request.headers.get('authorization') ?? 'anonymous')
+  const key = identity + ':' + (request.headers.get('cf-connecting-ip') ?? 'unknown')
   const bucket = rateBuckets.get(key)
   if (!bucket || now - bucket.startedAt >= 60_000) { rateBuckets.set(key, { startedAt: now, count: 1 }); return undefined }
-  if (bucket.count >= max) return json({ error: 'Rate limit exceeded' }, 429)
+  if (bucket.count >= max) return json(request, env, { error: 'Rate limit exceeded' }, 429)
   bucket.count += 1
   return undefined
 }
-
 async function readJsonBody(request: Request, env: Env): Promise<unknown> {
   const maxBytes = numberSetting(env.MAX_BODY_BYTES, 16384, 1024, 65536)
   const text = await request.text()
@@ -244,26 +258,29 @@ function validateRequest(value: unknown): AiGatewayRequest {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === 'OPTIONS') return json({ ok: true })
+    if (request.method === 'OPTIONS') {
+      if (request.headers.get('origin') && !corsHeaders(request, env)['access-control-allow-origin']) return json(request, env, { error: 'Origin not allowed' }, 403)
+      return new Response(null, { status: 204, headers: corsHeaders(request, env) })
+    }
     const url = new URL(request.url)
     if (url.pathname === '/health' && request.method === 'GET') {
-      const auth = requireAuth(request, env)
-      if (auth) return auth
-      return json({ ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.3.0' })
+      const auth = await requireAuth(request, env)
+      if (auth.error) return auth.error
+      return json(request, env, { ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.12.0' })
     }
     if (url.pathname === '/v1/comment' && request.method === 'POST') {
-      const auth = requireAuth(request, env)
-      if (auth) return auth
-      const limited = rateLimit(request, env)
+      const auth = await requireAuth(request, env)
+      if (auth.error) return auth.error
+      const limited = rateLimit(request, env, auth.identity)
       if (limited) return limited
       try {
         const body = validateRequest(await readJsonBody(request, env))
-        return json(await generate(env, body))
+        return json(request, env, await generate(env, body))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Gateway error'
-        return json({ error: message }, message === 'Request body too large' ? 413 : message === 'AI provider timed out' ? 504 : 400)
+        return json(request, env, { error: message }, message === 'Request body too large' ? 413 : message === 'AI provider timed out' ? 504 : 400)
       }
     }
-    return json({ error: 'Not found' }, 404)
+    return json(request, env, { error: 'Not found' }, 404)
   },
 }
