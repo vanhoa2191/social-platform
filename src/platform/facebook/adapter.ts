@@ -33,46 +33,55 @@ function canonicalPermalink(value?: string): string | undefined {
   try {
     const url = new URL(value, window.location.href)
     if (!isSupportedFacebookUrl(url.href)) return undefined
-    const keep = new URL(url.origin + url.pathname)
+    const kept = new URL(url.origin + url.pathname)
     for (const key of ['story_fbid', 'id', 'fbid', 'set']) {
       const item = url.searchParams.get(key)
-      if (item) keep.searchParams.set(key, item)
+      if (item) kept.searchParams.set(key, item)
     }
-    return keep.href
+    return kept.href
+  } catch { return undefined }
+}
+
+function guessPermalink(article: Element): string | undefined {
+  return canonicalPermalink(Array.from(article.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .find((anchor) => {
+      const href = anchor.href
+      return href.includes('/posts/') || href.includes('/permalink/') || href.includes('/reel/') || href.includes('story_fbid=')
+    })?.href)
+}
+
+function canonicalPostKey(permalink?: string): string | undefined {
+  if (!permalink) return undefined
+  try {
+    const url = new URL(permalink, window.location.href)
+    const storyId = url.searchParams.get('story_fbid')
+    if (storyId) return `story:${storyId}`
+    const match = url.pathname.match(/\/(?:posts|permalink|reel)\/([^/?#]+)/)
+    if (match?.[1]) return `path:${match[1]}`
+    return undefined
   } catch {
     return undefined
   }
 }
 
-function guessPermalink(article: Element): string | undefined {
-  const candidate = Array.from(article.querySelectorAll<HTMLAnchorElement>('a[href]'))
-    .find((anchor) => {
-      const href = anchor.href
-      return href.includes('/posts/')
-        || href.includes('/permalink/')
-        || href.includes('/reel/')
-        || href.includes('story_fbid=')
-        || href.includes('/photo/')
-    })?.href
-  return canonicalPermalink(candidate)
-}
-
-export function facebookPostIdentity(node: Element): { id: string; text: string; permalink?: string } {
+function postIdentity(node: Element): { id: string; text: string; permalink?: string; stable: boolean } {
   const text = visibleText(node)
   const permalink = guessPermalink(node)
-  const author = guessAuthor(node) ?? ''
+  const stableKey = canonicalPostKey(permalink)
   return {
     text,
     permalink,
-    id: permalink
-      ? fingerprint(['facebook-permalink', permalink])
-      : fingerprint(['facebook-fallback', author, text.slice(0, 1200), window.location.pathname]),
+    stable: Boolean(stableKey),
+    id: stableKey
+      ? `fb:${stableKey}`
+      : `fallback:${fingerprint([guessAuthor(node) ?? '', text.slice(0, 1200), window.location.hostname])}`,
   }
 }
 
 function profileCandidates(): Array<{ label: string; url?: string; evidence: string }> {
   const results: Array<{ label: string; url?: string; evidence: string }> = []
   const visited = new Set<Element>()
+
   for (const selector of facebookSelectors.profileAnchors) {
     for (const anchor of document.querySelectorAll<HTMLAnchorElement>(selector)) {
       if (visited.has(anchor)) continue
@@ -88,21 +97,25 @@ function profileCandidates(): Array<{ label: string; url?: string; evidence: str
       results.push({ label, url, evidence: selector })
     }
   }
+
   return results
 }
 
 function detectAccountContext(): AccountContext | undefined {
   const candidates = profileCandidates()
   if (!candidates.length) return undefined
+
   const withProfileId = candidates.find((candidate) => candidate.url?.includes('/profile.php?id='))
   const candidate = withProfileId ?? candidates[0]
   const evidence = candidates
     .filter((item) => item.label === candidate.label || item.url === candidate.url)
     .map((item) => item.evidence)
     .slice(0, 4)
+
   const strongUrl = Boolean(candidate.url?.includes('/profile.php?id='))
   const profileAriaEvidence = evidence.some((item) => item.includes('aria-label'))
   const verified = Boolean(candidate.url && (strongUrl || profileAriaEvidence))
+
   return {
     platform: 'facebook',
     key: buildAccountContextKey(candidate.url, candidate.label),
@@ -128,11 +141,13 @@ function scan(limit = 20): FeedPost[] {
   const context = getContext()
   const seen = new Set<string>()
   const posts: FeedPost[] = []
+
   for (const node of uniqueArticles()) {
     if (posts.length >= Math.max(1, Math.min(limit, 100))) break
-    const identity = facebookPostIdentity(node)
+    const identity = postIdentity(node)
     if (identity.text.length < 40 || seen.has(identity.id)) continue
     seen.add(identity.id)
+
     posts.push({
       id: identity.id,
       text: identity.text,
@@ -145,6 +160,7 @@ function scan(limit = 20): FeedPost[] {
       accountLabel: context.account?.label,
     })
   }
+
   return posts
 }
 
@@ -158,57 +174,48 @@ function isCommentControl(element: Element): boolean {
 }
 
 function findPostElement(postId: string): HTMLElement | undefined {
-  return uniqueArticles().find((node) => facebookPostIdentity(node).id === postId)
+  if (!postId.startsWith('fb:')) {
+    throw new Error('Bài viết không có permalink ổn định; để an toàn, adapter không tự chuẩn bị bình luận cho bài này.')
+  }
+  const matches = uniqueArticles().filter((node) => postIdentity(node).id === postId)
+  if (matches.length > 1) {
+    throw new Error('Có nhiều bài viết trùng định danh trong DOM; đã dừng để tránh nhập nhầm bình luận.')
+  }
+  return matches[0]
 }
 
-function isVisible(element: HTMLElement): boolean {
-  const rect = element.getBoundingClientRect()
-  const style = window.getComputedStyle?.(element)
-  return rect.width >= 0
-    && rect.height >= 0
-    && style?.display !== 'none'
-    && style?.visibility !== 'hidden'
-}
-
-function findComposerForArticle(article: HTMLElement): HTMLElement | undefined {
-  const selector = facebookSelectors.composer.join(',')
-  const local = article.querySelector<HTMLElement>(selector)
-  if (local && isVisible(local)) return local
-
-  const articleRect = article.getBoundingClientRect()
-  return Array.from(document.querySelectorAll<HTMLElement>(selector))
-    .filter(isVisible)
-    .map((node) => ({ node, rect: node.getBoundingClientRect() }))
-    .filter(({ rect }) => {
-      const horizontalOverlap = rect.right >= articleRect.left && rect.left <= articleRect.right
-      const verticalDistance = Math.min(
-        Math.abs(rect.top - articleRect.bottom),
-        Math.abs(rect.bottom - articleRect.top),
-      )
-      return horizontalOverlap && verticalDistance <= 320
-    })
-    .sort((a, b) => Math.abs(a.rect.top - articleRect.bottom) - Math.abs(b.rect.top - articleRect.bottom))[0]?.node
+function findLocalComposer(article: HTMLElement): HTMLElement | undefined {
+  const candidates = Array.from(article.querySelectorAll<HTMLElement>(facebookSelectors.composer.join(',')))
+    .filter((node) => node.getAttribute('aria-hidden') !== 'true')
+  if (candidates.length > 1) {
+    throw new Error('Có nhiều ô bình luận trong cùng bài viết; đã dừng để tránh nhập nhầm.')
+  }
+  return candidates[0]
 }
 
 async function waitForComposer(article: HTMLElement, timeoutMs = 3500): Promise<HTMLElement | undefined> {
-  const immediate = findComposerForArticle(article)
-  if (immediate) return immediate
+  const initial = findLocalComposer(article)
+  if (initial) return initial
 
-  return new Promise((resolve) => {
-    let settled = false
-    const finish = (composer?: HTMLElement) => {
-      if (settled) return
-      settled = true
-      observer.disconnect()
-      window.clearTimeout(timer)
-      resolve(composer)
-    }
+  return new Promise((resolve, reject) => {
     const observer = new MutationObserver(() => {
-      const composer = findComposerForArticle(article)
-      if (composer) finish(composer)
+      try {
+        const candidate = findLocalComposer(article)
+        if (!candidate) return
+        observer.disconnect()
+        window.clearTimeout(timer)
+        resolve(candidate)
+      } catch (error) {
+        observer.disconnect()
+        window.clearTimeout(timer)
+        reject(error)
+      }
     })
+    const timer = window.setTimeout(() => {
+      observer.disconnect()
+      resolve(undefined)
+    }, timeoutMs)
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true })
-    const timer = window.setTimeout(() => finish(findComposerForArticle(article)), timeoutMs)
   })
 }
 
@@ -222,15 +229,11 @@ async function prepareComment(postId: string, comment: string): Promise<PrepareC
   commentControl?.click()
 
   const composer = await waitForComposer(article)
-  if (!composer) throw new Error('Không tìm thấy ô bình luận thuộc bài viết này. Adapter Facebook có thể cần cập nhật selector.')
+  if (!composer) {
+    throw new Error('Không xác định được ô bình luận thuộc đúng bài viết; đã dừng để tránh nhập nhầm.')
+  }
 
   composer.focus()
-  composer.dispatchEvent(new InputEvent('beforeinput', {
-    bubbles: true,
-    cancelable: true,
-    inputType: 'insertText',
-    data: comment,
-  }))
   composer.textContent = comment
   composer.dispatchEvent(new InputEvent('input', {
     bubbles: true,
@@ -238,10 +241,10 @@ async function prepareComment(postId: string, comment: string): Promise<PrepareC
     data: comment,
   }))
 
-  await new Promise((resolve) => window.setTimeout(resolve, 100))
+  await new Promise((resolve) => window.setTimeout(resolve, 80))
   const composerText = normalizeText(composer.innerText || composer.textContent || '')
-  const expected = normalizeText(comment)
-  const prepared = composerText === expected || composerText.includes(expected.slice(0, Math.min(32, expected.length)))
+  const prepared = composerText === normalizeText(comment)
+
   return { postId, prepared, composerText }
 }
 
@@ -251,6 +254,7 @@ function diagnose(): AdapterDiagnostic {
   const accountCandidates = profileCandidates()
   const context = getContext()
   const warnings: string[] = []
+
   if (!articles.length) warnings.push('Không tìm thấy article trong DOM hiện tại.')
   if (!context.account) warnings.push('Chưa nhận diện được account context.')
   else if (!context.account.verified) warnings.push('Account context mới ở mức suy luận, chưa đủ bằng chứng để bind scheduler.')
@@ -263,7 +267,7 @@ function diagnose(): AdapterDiagnostic {
       : 'HEALTHY'
 
   return {
-    adapterId: 'facebook-web-v2',
+    adapterId: 'facebook-web-v1',
     health,
     surface: context.surface,
     articleCount: articles.length,
@@ -275,7 +279,7 @@ function diagnose(): AdapterDiagnostic {
 }
 
 export const facebookAdapter: PlatformAdapter = {
-  id: 'facebook-web-v2',
+  id: 'facebook-web-v1',
   canHandle: isSupportedFacebookUrl,
   getContext,
   diagnose,

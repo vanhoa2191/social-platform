@@ -52,3 +52,7 @@ export function resolveScheduleSync(
 
   return { rowsToPush, rowsToPull, conflicts }
 }
+
+export function nextDefinitionRevision(localRevision: number, remoteRevision: number): number {
+  return Math.max(1, Math.trunc(localRevision) || 1, Math.trunc(remoteRevision) || 0) + 1
+}

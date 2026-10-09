@@ -127,3 +127,26 @@ export async function applyRemoteSchedule(
   db.close()
   return schedule
 }
+
+export async function setScheduleDefinitionRevision(
+  id: string,
+  revision: number,
+  definitionUpdatedAt = Date.now(),
+): Promise<ReviewSchedule | undefined> {
+  const db = await openRuntimeDb()
+  const tx = db.transaction(SCHEDULES_STORE, 'readwrite')
+  const store = tx.objectStore(SCHEDULES_STORE)
+  const current = await requestToPromise(store.get(id) as IDBRequest<ReviewSchedule | undefined>)
+  if (!current) { await transactionDone(tx); db.close(); return undefined }
+  const updated: ReviewSchedule = {
+    ...current,
+    definitionRevision: Math.max(1, Math.trunc(revision)),
+    definitionUpdatedAt,
+    runtimeUpdatedAt: Date.now(),
+    updatedAt: definitionUpdatedAt,
+  }
+  store.put(updated)
+  await transactionDone(tx)
+  db.close()
+  return updated
+}

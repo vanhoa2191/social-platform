@@ -10,11 +10,11 @@ import { isSupportedFacebookUrl } from '../core/helpers'
 import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, renewJobLease, updateJob } from './queue'
 import { acquireLock, releaseLock, renewLock } from '../runtime/locks'
 import { clearRuntimeEvents, listRuntimeEvents, listRuntimeEventsAfter, logRuntimeEvent } from '../runtime/events'
-import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, touchSchedule, upsertSchedule } from '../runtime/schedules'
+import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, setScheduleDefinitionRevision, touchSchedule, upsertSchedule } from '../runtime/schedules'
 import { computeBackoffMs } from '../runtime/retry'
 import type { ReviewSchedule, RuntimeEvent } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
-import { ensureDefaultSettings, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken, getPilotSettings, savePilotSettings } from './storage'
+import { addScheduleTombstone, clearScheduleTombstones, ensureDefaultSettings, getScheduleTombstones, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken, getPilotSettings, savePilotSettings } from './storage'
 import { getRuntimeDbInfo } from './runtimeDb'
 import { effectiveActionLimit, effectivePostLimit, releaseChannelFromVersionName } from './pilot'
 import { cleanupRuntimeData } from '../runtime/retention'
@@ -393,7 +393,7 @@ async function processQueueTick(): Promise<void> {
   if (safety.emergencyStop) return
 
   await materializeSchedules()
-  const jobs = await claimDueJobs(WORKER_ID, 3, QUEUE_LEASE_MS)
+  const jobs = await claimDueJobs(WORKER_ID, 1, QUEUE_LEASE_MS)
 
   for (const job of jobs) {
     const locked = await acquireLock(job.resourceKey, job.id, QUEUE_LEASE_MS)
@@ -660,9 +660,25 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SCHEDULE_DELETE') {
+        await addScheduleTombstone(message.scheduleId)
         await deleteSchedule(message.scheduleId)
         await logRuntimeEvent('INFO', 'SCHEDULER', 'Đã xóa lịch chạy.')
         sendResponse({ ok: true, data: { deleted: true } })
+        return
+      }
+      if (message.type === 'SCHEDULE_TOMBSTONES_LIST') {
+        sendResponse({ ok: true, data: await getScheduleTombstones() })
+        return
+      }
+      if (message.type === 'SCHEDULE_TOMBSTONES_CLEAR') {
+        await clearScheduleTombstones(message.scheduleIds)
+        sendResponse({ ok: true, data: { cleared: true } })
+        return
+      }
+      if (message.type === 'SCHEDULE_SET_REVISION') {
+        const schedule = await setScheduleDefinitionRevision(message.scheduleId, message.revision, message.definitionUpdatedAt)
+        if (!schedule) throw new Error('Không tìm thấy lịch local cần cập nhật revision.')
+        sendResponse({ ok: true, data: schedule })
         return
       }
       if (message.type === 'SCHEDULE_RUN_NOW') {

@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  runTransaction,
   setDoc,
   writeBatch,
 } from 'firebase/firestore'
@@ -10,14 +11,16 @@ import type { User } from 'firebase/auth'
 import type { ReviewSchedule } from '../runtime/types'
 import {
   applyRemoteSchedule,
+  clearScheduleTombstones,
   getPilotSettings,
+  listScheduleTombstones,
   listRuntimeEventsAfter,
   listSchedules,
-  touchSchedule,
+  setScheduleRevision,
 } from '../extension/client'
 import { getFirebaseAuth, getFirestoreDb } from './client'
 import { claimLocalDataOwner, getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
-import { resolveScheduleSync } from './syncPolicy'
+import { nextDefinitionRevision, resolveScheduleSync } from './syncPolicy'
 import { eventCursor, telemetryStartCursor, toTelemetryEventRecord } from './telemetry'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
 
@@ -128,15 +131,32 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   const { user } = await requireSession()
   await claimLocalDataOwner(user.uid)
   const browserInstanceId = await registerBrowserInstance(extensionVersion)
-  const schedulesResult = await listSchedules()
+  const [schedulesResult, tombstonesResult] = await Promise.all([
+    listSchedules(),
+    listScheduleTombstones(),
+  ])
   if (!schedulesResult.ok) throw new Error(schedulesResult.error)
+  if (!tombstonesResult.ok) throw new Error(tombstonesResult.error)
 
   const syncedAt = new Date().toISOString()
   const scheduleRows = schedulesResult.data.map((schedule) => toRemoteSchedule(schedule, browserInstanceId, syncedAt))
   const schedulesCollection = collection(db, 'users', user.uid, 'schedules')
   const remoteSnapshot = await getDocs(schedulesCollection)
-  const remoteRows = remoteSnapshot.docs.map((item) => normalizeRemoteSchedule(item.id, item.data()))
+  const tombstoneIds = new Set(tombstonesResult.data)
+  const remoteRows = remoteSnapshot.docs
+    .map((item) => normalizeRemoteSchedule(item.id, item.data()))
+    .filter((item) => !tombstoneIds.has(item.localScheduleId))
   const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
+
+  if (tombstonesResult.data.length) {
+    const deleteBatch = writeBatch(db)
+    for (const scheduleId of tombstonesResult.data) {
+      deleteBatch.delete(doc(db, 'users', user.uid, 'schedules', scheduleId))
+    }
+    await deleteBatch.commit()
+    const cleared = await clearScheduleTombstones(tombstonesResult.data)
+    if (!cleared.ok) throw new Error(cleared.error)
+  }
 
   for (const row of syncDecision.rowsToPull) await applyRemoteRow(row)
 
@@ -235,10 +255,33 @@ export async function signOutBackend(): Promise<void> {
 }
 
 export async function resolveScheduleConflictKeepLocal(scheduleId: string, extensionVersion: string): Promise<SyncSummary> {
-  const { user } = await requireSession()
+  const { db, user } = await requireSession()
   await claimLocalDataOwner(user.uid)
-  const touched = await touchSchedule(scheduleId)
-  if (!touched.ok) throw new Error(touched.error)
+  const schedulesResult = await listSchedules()
+  if (!schedulesResult.ok) throw new Error(schedulesResult.error)
+  const local = schedulesResult.data.find((item) => item.id === scheduleId)
+  if (!local) throw new Error('Không tìm thấy lịch local để giữ.')
+
+  const browserInstanceId = await registerBrowserInstance(extensionVersion)
+  const ref = doc(db, 'users', user.uid, 'schedules', scheduleId)
+  const definitionUpdatedAt = Date.now()
+  const syncedAt = new Date(definitionUpdatedAt).toISOString()
+
+  const nextRevision = await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(ref)
+    const remoteRevision = snapshot.exists() ? Number(snapshot.data().revision ?? 0) : 0
+    const revision = nextDefinitionRevision(local.definitionRevision, remoteRevision)
+    transaction.set(ref, toRemoteSchedule({
+      ...local,
+      definitionRevision: revision,
+      definitionUpdatedAt,
+      updatedAt: definitionUpdatedAt,
+    }, browserInstanceId, syncedAt), { merge: true })
+    return revision
+  })
+
+  const updatedLocal = await setScheduleRevision(scheduleId, nextRevision, definitionUpdatedAt)
+  if (!updatedLocal.ok) throw new Error(updatedLocal.error)
   return syncRuntimeData(extensionVersion)
 }
 

@@ -122,6 +122,9 @@ export type BackgroundRequest =
   | { type: 'SCHEDULE_LIST' }
   | { type: 'SCHEDULE_UPSERT'; schedule: ReviewScheduleInput }
   | { type: 'SCHEDULE_DELETE'; scheduleId: string }
+  | { type: 'SCHEDULE_TOMBSTONES_LIST' }
+  | { type: 'SCHEDULE_TOMBSTONES_CLEAR'; scheduleIds: string[] }
+  | { type: 'SCHEDULE_SET_REVISION'; scheduleId: string; revision: number; definitionUpdatedAt: number }
   | { type: 'SCHEDULE_RUN_NOW'; scheduleId: string }
   | { type: 'SCHEDULE_TOUCH'; scheduleId: string }
   | { type: 'SCHEDULE_APPLY_REMOTE'; schedule: ReviewScheduleInput & { id: string }; revision: number; definitionUpdatedAt?: number }
