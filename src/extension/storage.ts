@@ -1,6 +1,7 @@
 import type { AutomationSafetyState } from '../automation/model'
 import { defaultAiGatewaySettings, type AiGatewaySettings } from '../ai/contracts'
 import { defaultPilotSettings, normalizePilotSettings, type PilotSettings } from './pilot'
+import type { ScheduleTombstone } from '../runtime/types'
 
 const SETTINGS_KEY = 'autotool.settings'
 const SAFETY_KEY = 'autotool.safety'
@@ -116,21 +117,37 @@ export async function savePilotSettings(settings: PilotSettings): Promise<PilotS
   return normalized
 }
 
-export async function getScheduleTombstones(): Promise<string[]> {
+export async function getScheduleTombstones(): Promise<ScheduleTombstone[]> {
   const result = await chrome.storage.local.get(SCHEDULE_TOMBSTONES_KEY)
   const value = result[SCHEDULE_TOMBSTONES_KEY]
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item): ScheduleTombstone[] => {
+    if (typeof item === 'string') return [{ id: item, baseRevision: 0, deletedAt: 0 }]
+    if (!item || typeof item !== 'object') return []
+    const record = item as Partial<ScheduleTombstone>
+    if (typeof record.id !== 'string' || !record.id) return []
+    return [{
+      id: record.id,
+      baseRevision: Math.max(0, Math.trunc(Number(record.baseRevision ?? 0)) || 0),
+      deletedAt: Math.max(0, Number(record.deletedAt ?? 0) || 0),
+    }]
+  })
 }
 
-export async function addScheduleTombstone(scheduleId: string): Promise<void> {
+export async function addScheduleTombstone(tombstone: ScheduleTombstone): Promise<void> {
   const current = await getScheduleTombstones()
-  await chrome.storage.local.set({ [SCHEDULE_TOMBSTONES_KEY]: Array.from(new Set([...current, scheduleId])) })
+  await chrome.storage.local.set({
+    [SCHEDULE_TOMBSTONES_KEY]: [
+      ...current.filter((item) => item.id !== tombstone.id),
+      tombstone,
+    ],
+  })
 }
 
 export async function clearScheduleTombstones(scheduleIds: string[]): Promise<void> {
   const removed = new Set(scheduleIds)
   const current = await getScheduleTombstones()
   await chrome.storage.local.set({
-    [SCHEDULE_TOMBSTONES_KEY]: current.filter((id) => !removed.has(id)),
+    [SCHEDULE_TOMBSTONES_KEY]: current.filter((item) => !removed.has(item.id)),
   })
 }

@@ -20,7 +20,7 @@ import {
 } from '../extension/client'
 import { getFirebaseAuth, getFirestoreDb } from './client'
 import { claimLocalDataOwner, getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
-import { nextDefinitionRevision, resolveScheduleSync } from './syncPolicy'
+import { nextDefinitionRevision, resolveScheduleDeletions, resolveScheduleSync } from './syncPolicy'
 import { eventCursor, telemetryStartCursor, toTelemetryEventRecord } from './telemetry'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
 
@@ -119,6 +119,9 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
       provider: 'firebase',
       schedulesPushed: 0,
       schedulesPulled: 0,
+      schedulesDeleted: 0,
+      deletionConflicts: 0,
+      deletionConflictScheduleIds: [],
       eventsPushed: 0,
       remoteSchedules: 0,
       conflicts: 0,
@@ -142,19 +145,21 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   const scheduleRows = schedulesResult.data.map((schedule) => toRemoteSchedule(schedule, browserInstanceId, syncedAt))
   const schedulesCollection = collection(db, 'users', user.uid, 'schedules')
   const remoteSnapshot = await getDocs(schedulesCollection)
-  const tombstoneIds = new Set(tombstonesResult.data)
-  const remoteRows = remoteSnapshot.docs
-    .map((item) => normalizeRemoteSchedule(item.id, item.data()))
-    .filter((item) => !tombstoneIds.has(item.localScheduleId))
+  const allRemoteRows = remoteSnapshot.docs.map((item) => normalizeRemoteSchedule(item.id, item.data()))
+  const deletionDecision = resolveScheduleDeletions(tombstonesResult.data, allRemoteRows)
+  const tombstoneIds = new Set(tombstonesResult.data.map((item) => item.id))
+  const remoteRows = allRemoteRows.filter((item) => !tombstoneIds.has(item.localScheduleId))
   const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
 
-  if (tombstonesResult.data.length) {
+  if (deletionDecision.idsToDelete.length) {
     const deleteBatch = writeBatch(db)
-    for (const scheduleId of tombstonesResult.data) {
+    for (const scheduleId of deletionDecision.idsToDelete) {
       deleteBatch.delete(doc(db, 'users', user.uid, 'schedules', scheduleId))
     }
     await deleteBatch.commit()
-    const cleared = await clearScheduleTombstones(tombstonesResult.data)
+  }
+  if (deletionDecision.idsToClear.length) {
+    const cleared = await clearScheduleTombstones(deletionDecision.idsToClear)
     if (!cleared.ok) throw new Error(cleared.error)
   }
 
@@ -203,6 +208,9 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     browserInstanceId,
     schedulesPushed: syncDecision.rowsToPush.length,
     schedulesPulled: syncDecision.rowsToPull.length,
+    schedulesDeleted: deletionDecision.idsToDelete.length,
+    deletionConflicts: deletionDecision.conflicts.length,
+    deletionConflictScheduleIds: deletionDecision.conflicts,
     eventsPushed,
     remoteSchedules: remoteSnapshot.size,
     conflicts: syncDecision.conflicts.length,
@@ -291,5 +299,34 @@ export async function resolveScheduleConflictUseCloud(scheduleId: string, extens
   const snapshot = await getDoc(doc(db, 'users', user.uid, 'schedules', scheduleId))
   if (!snapshot.exists()) throw new Error('Không tìm thấy lịch cloud.')
   await applyRemoteRow(normalizeRemoteSchedule(snapshot.id, snapshot.data()))
+  return syncRuntimeData(extensionVersion)
+}
+
+export async function resolveScheduleDeletionConflictRestoreCloud(
+  scheduleId: string,
+  extensionVersion: string,
+): Promise<SyncSummary> {
+  const { db, user } = await requireSession()
+  await claimLocalDataOwner(user.uid)
+  const snapshot = await getDoc(doc(db, 'users', user.uid, 'schedules', scheduleId))
+  if (snapshot.exists()) await applyRemoteRow(normalizeRemoteSchedule(snapshot.id, snapshot.data()))
+  const cleared = await clearScheduleTombstones([scheduleId])
+  if (!cleared.ok) throw new Error(cleared.error)
+  return syncRuntimeData(extensionVersion)
+}
+
+export async function resolveScheduleDeletionConflictDeleteCloud(
+  scheduleId: string,
+  extensionVersion: string,
+): Promise<SyncSummary> {
+  const { db, user } = await requireSession()
+  await claimLocalDataOwner(user.uid)
+  await runTransaction(db, async (transaction) => {
+    const ref = doc(db, 'users', user.uid, 'schedules', scheduleId)
+    await transaction.get(ref)
+    transaction.delete(ref)
+  })
+  const cleared = await clearScheduleTombstones([scheduleId])
+  if (!cleared.ok) throw new Error(cleared.error)
   return syncRuntimeData(extensionVersion)
 }

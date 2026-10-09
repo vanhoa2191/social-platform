@@ -56,3 +56,9 @@ export interface ReviewScheduleInput {
   endHour: number
   accountBinding?: BoundAccountContext
 }
+
+export interface ScheduleTombstone {
+  id: string
+  baseRevision: number
+  deletedAt: number
+}

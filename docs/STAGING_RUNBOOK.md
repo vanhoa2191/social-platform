@@ -26,7 +26,7 @@ The Firebase Emulator command starts **Auth and Firestore**, then runs Rules + r
 cp .env.example .env.staging.local
 ```
 
-Fill `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` with the new **dev** Web App settings. Set `VITE_FIREBASE_USE_EMULATORS=false`. `.env.staging.local` must never be committed.
+Fill `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` with the new **dev** Web App settings. Set `VITE_FIREBASE_USE_EMULATORS=false`, `VITE_FIREBASE_ALLOW_REGISTRATION=false`, and set `VITE_AI_GATEWAY_ORIGIN` to the exact deployed staging Worker origin before building. `.env.staging.local` must never be committed.
 
 After reviewing the Security Rules in this repository, use the Firebase CLI with the development project deliberately selected:
 
@@ -63,6 +63,7 @@ Edit only the private `wrangler.staging.toml`:
 - `AI_PROVIDER` and `AI_MODEL` appropriate for approved testing.
 - Keep `[[durable_objects.bindings]] RATE_LIMITER` and the SQLite DO migration `v1` for user-scoped, transactional quotas. Durable Objects may incur account charges.
 - Restrict `RATE_LIMIT_PER_MINUTE` for the pilot (e.g. 5).
+- Set a conservative `GLOBAL_REQUEST_LIMIT_PER_DAY` and populate `ALLOWED_FIREBASE_UIDS` with approved pilot UIDs before using a paid provider.
 - When using `AI_PROVIDER="mock"`, explicitly use `ALLOW_MOCK_PILOT=1` for the preflight; it does not contact a paid provider.
 
 Run **offline preflight**:
@@ -96,6 +97,6 @@ Never commit API keys. Firebase Emulator-issued tokens are **not accepted** by t
 
 ## 7. Stable release controls
 
-GitHub `production` Environment must have **required reviewers**. Configure repository/organization variable `RELEASE_APPROVED=1` only when release has been approved, and tag exactly `v0.13.0`. CI and release workflows must succeed with Java 21 Firebase Emulator tests and verified extension checksums. Do not tag a release before the staging acceptance checklist has been completed.
+GitHub `production` Environment must have **required reviewers**. Configure repository/organization variable `RELEASE_APPROVED=1` only when release has been approved, and tag exactly `v0.14.0`. CI and release workflows must succeed with Java 21 Firebase Emulator tests and verified extension checksums. Do not tag a release before the staging acceptance checklist has been completed.
 
 **Not validated yet:** live Firebase project, Cloudflare deployed Durable Object billing / quota, actual Firebase-issued JWT against Google JWKS, and real Facebook browser E2E. Do not label this implementation production-ready solely from local tests.

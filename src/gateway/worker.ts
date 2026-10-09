@@ -6,6 +6,7 @@ interface Env {
   GATEWAY_TOKEN?: string
   GATEWAY_AUTH_MODE?: 'firebase' | 'token'
   FIREBASE_PROJECT_ID?: string
+  ALLOWED_FIREBASE_UIDS?: string
   ALLOWED_ORIGINS?: string
   AI_PROVIDER?: 'mock' | 'openai' | 'deepseek' | 'anthropic' | 'gemini'
   AI_MODEL?: string
@@ -14,6 +15,7 @@ interface Env {
   AI_INPUT_USD_PER_M?: string
   AI_OUTPUT_USD_PER_M?: string
   RATE_LIMIT_PER_MINUTE?: string
+  GLOBAL_REQUEST_LIMIT_PER_DAY?: string
   RATE_LIMITER?: QuotaNamespace
   PROVIDER_TIMEOUT_MS?: string
   MAX_BODY_BYTES?: string
@@ -36,7 +38,7 @@ interface QuotaStore {
 interface QuotaState {
   storage: QuotaStore
 }
-interface QuotaCounter { minute: number; count: number }
+interface QuotaCounter { bucket: number; count: number }
 
 export class UserRateLimiter {
   private readonly storage: QuotaStore
@@ -50,21 +52,27 @@ export class UserRateLimiter {
       return new Response('Not found', { status: 404 })
     }
     let limit: number
+    let windowMs: number
     try {
       const raw: unknown = await request.json()
-      const value = (raw as Record<string, unknown> | null)?.limit
-      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 300) throw new Error('Invalid limit')
+      const record = raw as Record<string, unknown> | null
+      const value = record?.limit
+      const windowMsValue = record?.windowMs ?? 60_000
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 1_000_000) throw new Error('Invalid limit')
+      if (typeof windowMsValue !== 'number' || !Number.isInteger(windowMsValue) || windowMsValue < 60_000 || windowMsValue > 86_400_000) throw new Error('Invalid window')
       limit = value
+      windowMs = windowMsValue
     } catch {
       return new Response('Invalid quota request', { status: 400 })
     }
 
-    const minute = Math.floor(Date.now() / 60_000)
+    const bucket = Math.floor(Date.now() / windowMs)
+    const storageKey = 'counter:' + windowMs
     const allowed = await this.storage.transaction(async (tx) => {
-      const current = await tx.get<QuotaCounter>('counter')
-      const count = current?.minute === minute ? current.count : 0
+      const current = await tx.get<QuotaCounter>(storageKey)
+      const count = current?.bucket === bucket ? current.count : 0
       if (count >= limit) return false
-      await tx.put('counter', { minute, count: count + 1 } satisfies QuotaCounter)
+      await tx.put(storageKey, { bucket, count: count + 1 } satisfies QuotaCounter)
       return true
     })
     return new Response(null, { status: allowed ? 204 : 429 })
@@ -81,6 +89,10 @@ function numberSetting(value: string | undefined, fallback: number, min: number,
 }
 
 const firebaseJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'))
+export function firebaseUidAllowed(uid: string, configured?: string): boolean {
+  const allowlist = (configured ?? '').split(',').map((value) => value.trim()).filter(Boolean)
+  return allowlist.length === 0 || allowlist.includes(uid)
+}
 function corsHeaders(request: Request, env: Env): Record<string,string> {
   const origin = request.headers.get('origin')
   const allowlist = (env.ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim())
@@ -101,6 +113,9 @@ async function requireAuth(request: Request, env: Env): Promise<{ identity: stri
       const projectId = env.FIREBASE_PROJECT_ID
       const { payload } = await jwtVerify(token, firebaseJwks, { algorithms: ['RS256'], audience: projectId, issuer: 'https://securetoken.google.com/' + projectId })
       if (!payload.sub || typeof payload.auth_time !== 'number') throw new Error('Invalid Firebase claims')
+      if (!firebaseUidAllowed(payload.sub, env.ALLOWED_FIREBASE_UIDS)) {
+        return { identity: '', error: json(request, env, { error: 'Firebase user is not approved for this gateway' }, 403) }
+      }
       return { identity: 'firebase:' + payload.sub }
     } catch {
       return { identity: '', error: json(request, env, { error: 'Invalid Firebase ID token' }, 401) }
@@ -120,11 +135,25 @@ async function rateLimit(request: Request, env: Env, identity: string): Promise<
       const id = env.RATE_LIMITER.idFromName(identity)
       const response = await env.RATE_LIMITER.get(id as never).fetch(
         'https://rate-limit.internal/consume',
-        { method: 'POST', body: JSON.stringify({ limit: max }) },
+        { method: 'POST', body: JSON.stringify({ limit: max, windowMs: 60_000 }) },
       )
-      if (response.status === 204) return undefined
       if (response.status === 429) return json(request, env, { error: 'Rate limit exceeded' }, 429)
-      return json(request, env, { error: 'Quota service unavailable' }, 503)
+      if (response.status !== 204) return json(request, env, { error: 'Quota service unavailable' }, 503)
+
+      if ((env.AI_PROVIDER || 'mock') !== 'mock') {
+        const globalDaily = Number(env.GLOBAL_REQUEST_LIMIT_PER_DAY)
+        if (!Number.isInteger(globalDaily) || globalDaily < 1 || globalDaily > 1_000_000) {
+          return json(request, env, { error: 'Global production quota missing' }, 503)
+        }
+        const globalId = env.RATE_LIMITER.idFromName('global:' + (env.AI_PROVIDER || 'provider'))
+        const globalResponse = await env.RATE_LIMITER.get(globalId as never).fetch(
+          'https://rate-limit.internal/consume',
+          { method: 'POST', body: JSON.stringify({ limit: globalDaily, windowMs: 86_400_000 }) },
+        )
+        if (globalResponse.status === 429) return json(request, env, { error: 'Global daily AI quota exceeded' }, 429)
+        if (globalResponse.status !== 204) return json(request, env, { error: 'Quota service unavailable' }, 503)
+      }
+      return undefined
     } catch {
       return json(request, env, { error: 'Quota service unavailable' }, 503)
     }
@@ -346,7 +375,7 @@ export default {
     if (url.pathname === '/health' && request.method === 'GET') {
       const auth = await requireAuth(request, env)
       if (auth.error) return auth.error
-      return json(request, env, { ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.13.0' })
+      return json(request, env, { ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.14.0' })
     }
     if (url.pathname === '/v1/comment' && request.method === 'POST') {
       const auth = await requireAuth(request, env)

@@ -122,7 +122,7 @@ export default function ReviewQueuePanel() {
       setEmergencyStopValue(result.data.emergencyStop)
       setNotice(
         result.data.emergencyStop
-          ? 'Emergency Stop đã bật. Automation sẽ không chạy thêm tác vụ mới.'
+          ? 'Emergency Stop đã bật. Các job đang chờ được hủy; tác vụ mới sẽ bị chặn cho tới khi Stop được tắt.'
           : 'Emergency Stop đã tắt.',
       )
     } else {

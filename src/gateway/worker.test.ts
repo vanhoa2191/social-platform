@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import worker, { UserRateLimiter } from './worker'
+import worker, { UserRateLimiter, firebaseUidAllowed } from './worker'
 
 describe('AI gateway worker', () => {
   it('reports health in mock mode', async () => {
@@ -90,6 +90,12 @@ describe('AI gateway worker', () => {
     expect(invalid.status).toBe(401)
   })
 
+  it('supports an explicit Firebase UID allowlist for controlled pilots', () => {
+    expect(firebaseUidAllowed('user-a', undefined)).toBe(true)
+    expect(firebaseUidAllowed('user-a', 'user-a,user-b')).toBe(true)
+    expect(firebaseUidAllowed('user-c', 'user-a,user-b')).toBe(false)
+  })
+
   it('restricts CORS origins', async () => {
     const env = { AI_PROVIDER: 'mock' as const, ALLOWED_ORIGINS: 'https://dashboard.example' }
     const bad = await worker.fetch(new Request('https://gateway.test/v1/comment', { method: 'OPTIONS', headers: { origin: 'https://other.example' } }), env)
@@ -134,6 +140,41 @@ describe('AI gateway worker', () => {
       },
     })
     expect(response.status).toBe(429)
+  })
+
+  it('requires a global daily ceiling for paid AI providers', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { authorization: 'Bearer shared-dev-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ post: { id: '123', text: 'Review an example post.' }, promptVersion: 'comment-v2' }),
+    }), {
+      AI_PROVIDER: 'openai',
+      GATEWAY_TOKEN: 'shared-dev-token',
+      RATE_LIMITER: {
+        idFromName: (key: string) => key,
+        get: () => ({ fetch: async () => new Response(null, { status: 204 }) }),
+      },
+    })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ error: 'Global production quota missing' })
+  })
+
+  it('enforces the global daily AI ceiling before the provider call', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { authorization: 'Bearer shared-dev-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ post: { id: '123', text: 'Review an example post.' }, promptVersion: 'comment-v2' }),
+    }), {
+      AI_PROVIDER: 'openai',
+      GATEWAY_TOKEN: 'shared-dev-token',
+      GLOBAL_REQUEST_LIMIT_PER_DAY: '100',
+      RATE_LIMITER: {
+        idFromName: (key: string) => key,
+        get: (id: never) => ({ fetch: async () => new Response(null, { status: String(id).startsWith('global:') ? 429 : 204 }) }),
+      },
+    })
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ error: 'Global daily AI quota exceeded' })
   })
 
   it('increments a Durable Object quota atomically and refuses excess requests', async () => {

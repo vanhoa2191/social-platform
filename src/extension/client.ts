@@ -1,7 +1,7 @@
 import { gatewayOriginPattern } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { AutomationSafetyState, CandidateState, ReviewCandidate } from '../automation/model'
-import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent, RuntimeEventCursor } from '../runtime/types'
+import type { ReviewSchedule, ReviewScheduleInput, RuntimeEvent, RuntimeEventCursor, ScheduleTombstone } from '../runtime/types'
 import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import type { AiSettingsView, ExtensionResponse, FeedPost, RuntimeStatus } from './types'
 import type { PilotSettings } from './pilot'
@@ -144,8 +144,8 @@ export function deleteSchedule(scheduleId: string): Promise<ExtensionResponse<{ 
   return send<{ deleted: true }>({ type: 'SCHEDULE_DELETE', scheduleId })
 }
 
-export function listScheduleTombstones(): Promise<ExtensionResponse<string[]>> {
-  return send<string[]>({ type: 'SCHEDULE_TOMBSTONES_LIST' })
+export function listScheduleTombstones(): Promise<ExtensionResponse<ScheduleTombstone[]>> {
+  return send<ScheduleTombstone[]>({ type: 'SCHEDULE_TOMBSTONES_LIST' })
 }
 
 export function clearScheduleTombstones(scheduleIds: string[]): Promise<ExtensionResponse<{ cleared: true }>> {

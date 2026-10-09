@@ -7,6 +7,26 @@ export function normalizeGatewayUrl(value: string): string {
   return value.trim().replace(/\/+$/, '')
 }
 
+export function trustedFirebaseGatewayOrigin(
+  configured: string | undefined = import.meta.env.VITE_AI_GATEWAY_ORIGIN,
+): string | undefined {
+  if (!configured?.trim()) return undefined
+  try {
+    const url = new URL(normalizeGatewayUrl(configured))
+    if (url.protocol !== 'https:' || !url.hostname.endsWith('.workers.dev')) return undefined
+    return url.origin
+  } catch { return undefined }
+}
+
+export function isTrustedFirebaseGatewayUrl(
+  value: string,
+  trustedOrigin = trustedFirebaseGatewayOrigin(),
+): boolean {
+  if (!trustedOrigin) return false
+  try { return new URL(normalizeGatewayUrl(value)).origin === trustedOrigin }
+  catch { return false }
+}
+
 export function isSupportedGatewayUrl(value: string): boolean {
   try {
     const url = new URL(normalizeGatewayUrl(value))

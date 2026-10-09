@@ -85,6 +85,8 @@ export default function SchedulerPanel() {
   }
 
   async function remove(id: string) {
+    const item = items.find((schedule) => schedule.id === id)
+    if (!window.confirm('Xóa lịch "' + (item?.name ?? id) + '"? Nếu cloud có bản mới hơn, AutoTool sẽ yêu cầu xác nhận riêng trước khi xóa cloud.')) return
     setBusy(id + ':delete')
     const result = await deleteSchedule(id)
     if (result.ok) {

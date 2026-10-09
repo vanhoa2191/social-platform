@@ -2,8 +2,11 @@ import { build } from 'esbuild'
 
 const shared = {
   bundle: true,
-  minify: false,
-  sourcemap: true,
+  minify: true,
+  sourcemap: process.env.BUILD_SOURCEMAP === '1',
+  define: {
+    'import.meta.env.VITE_AI_GATEWAY_ORIGIN': JSON.stringify(process.env.VITE_AI_GATEWAY_ORIGIN ?? ''),
+  },
   target: ['chrome120'],
   logLevel: 'info',
 }

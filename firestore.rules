@@ -26,8 +26,12 @@ service cloud.firestore {
         && request.resource.data.promptVersion in ['comment-v1', 'comment-v2']
         && request.resource.data.config is map
         && request.resource.data.config.keys().hasOnly(['strategy', 'notes'])
+        && request.resource.data.config.get('strategy', 'INSIGHT') in ['INSIGHT', 'QUESTION', 'CLARIFICATION']
+        && optionalText(request.resource.data.config.get('notes', null), 2000)
         && request.resource.data.revision is int
-        && request.resource.data.updatedAt is int;
+        && request.resource.data.revision >= 1
+        && request.resource.data.updatedAt is int
+        && request.resource.data.updatedAt >= 0;
     }
 
     function validContent(contentId) {
@@ -42,7 +46,9 @@ service cloud.firestore {
         && request.resource.data.tags is list
         && request.resource.data.tags.size() <= 20
         && request.resource.data.revision is int
-        && request.resource.data.updatedAt is int;
+        && request.resource.data.revision >= 1
+        && request.resource.data.updatedAt is int
+        && request.resource.data.updatedAt >= 0;
     }
 
     match /users/{userId} {
@@ -57,6 +63,10 @@ service cloud.firestore {
           && request.resource.data.name is string
           && request.resource.data.name.size() <= 120
           && request.resource.data.extensionVersion is string
+          && request.resource.data.extensionVersion.size() <= 40
+          && request.resource.data.lastSeenAt is string
+          && request.resource.data.lastSeenAt.size() <= 64
+          && request.resource.data.metadata is map
           && request.resource.data.metadata.keys().hasOnly(['runtime'])
           && request.resource.data.metadata.runtime in ['extension', 'web-preview'];
       }
@@ -96,11 +106,17 @@ service cloud.firestore {
           && request.resource.data.maxPosts is int
           && request.resource.data.maxPosts >= 1
           && request.resource.data.maxPosts <= 20
+          && optionalText(request.resource.data.get('browserInstanceId', null), 120)
+          && optionalText(request.resource.data.get('accountContextKey', null), 500)
+          && optionalText(request.resource.data.get('accountLabel', null), 200)
+          && request.resource.data.lastSyncedAt is string
+          && request.resource.data.lastSyncedAt.size() <= 64
           && validHour(request.resource.data.startHour)
           && validHour(request.resource.data.endHour)
           && request.resource.data.revision is int
           && request.resource.data.revision >= 1
-          && request.resource.data.definitionUpdatedAt is int;
+          && request.resource.data.definitionUpdatedAt is int
+          && request.resource.data.definitionUpdatedAt >= 0;
       }
 
       match /analyticsEvents/{eventId} {
@@ -109,11 +125,15 @@ service cloud.firestore {
           && hasOnly(['browserInstanceId', 'localEventId', 'eventType', 'category', 'level', 'payload', 'occurredAt'])
           && request.resource.data.localEventId == eventId
           && request.resource.data.browserInstanceId is string
+          && request.resource.data.browserInstanceId.size() <= 120
           && request.resource.data.eventType is string
+          && request.resource.data.eventType.size() <= 50
           && request.resource.data.category in ['SYSTEM', 'QUEUE', 'SCHEDULER', 'REVIEW', 'ADAPTER']
           && request.resource.data.level in ['INFO', 'WARN', 'ERROR']
           && request.resource.data.payload.keys().hasOnly(['schemaVersion'])
-          && request.resource.data.payload.schemaVersion == 1;
+          && request.resource.data.payload.schemaVersion == 1
+          && request.resource.data.occurredAt is string
+          && request.resource.data.occurredAt.size() <= 64;
       }
 
       match /{unknownCollection}/{documentId} {

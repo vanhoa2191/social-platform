@@ -30,6 +30,9 @@ export interface SyncSummary {
   browserInstanceId?: string
   schedulesPushed: number
   schedulesPulled: number
+  schedulesDeleted: number
+  deletionConflicts: number
+  deletionConflictScheduleIds: string[]
   eventsPushed: number
   remoteSchedules: number
   conflicts: number

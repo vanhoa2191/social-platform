@@ -1,140 +1,49 @@
 # Implementation status
 
-## Completed
-
-### Phase 1 — UI shell
-- Dashboard
-- Campaign list/wizard
-- AI/content UI
-- Scheduler/queue/log/settings shells
-
-### Phase 2 — Chrome Extension MV3 core
-- background service worker
-- Facebook content script
-- typed runtime messaging
-- IndexedDB/chrome.storage
-
-### Phase 3 — Automation Engine MVP
-- deterministic review state machine
-- approve/reject/retry
-- draft edit/regenerate
-- approved-text composer preparation
-- Emergency Stop and session limits
-
-### Phase 4 — AI Gateway
-- local/gateway modes
-- provider routing
-- prompt versioning
-- structured output validation
-- token/cost metadata
-
-### Phase 5 — Queue & Scheduler hardening
-- durable leases
-- stale worker recovery
-- resource locks
-- retry/backoff
-- persisted schedules
-- runtime events
-
-### Phase 6 — Platform adapters & account context
-- Facebook adapter
-- account context binding
-- adapter diagnostics
-- account-aware locks and preparation
-
-### Phase 7 — Cloud data layer
-- local-first cloud model
-- browser instances
-- campaigns
-- AI profiles
-- schedule sync
-- revision conflict resolution
-- opt-in analytics metadata
-
-### Phase 8 — Testing & release hardening
-- Facebook fixture tests
-- IndexedDB migration tests
-- release ZIP/checksum/metadata
-- GitHub CI
-- tag-based releases
-
-### Phase 9 — Pilot safeguards
-- pilot mode default-on
-- low-volume limits
-- readiness checklist
-- opt-in telemetry
-- beta/stable promotion gate
-
-### Phase 10 — Firebase backend migration
-- Firebase Auth for MV3
-- Cloud Firestore
-- Firestore Security Rules
-- Firebase environment config
-- Firebase setup guide
-- Supabase runtime dependency removed
-
-### Phase 11 — Firebase emulator & security hardening — DONE IN REPOSITORY
-- Firebase Auth/Firestore emulator configuration
-- application emulator mode
-- stricter allowlisted Firestore Security Rules
-- cross-user isolation tests
-- unauthenticated access tests
-- stable document identity checks
-- telemetry privacy rule tests
-- unknown collection deny-by-default test
-- Java 21 Firebase emulator tests in CI
-- Java 21 Firebase emulator tests in stable release workflow
-- backend UI indicates emulator mode
-- default test suite remains independent of Java/emulator availability
-
 ## Current product version
 
-0.12.0-beta
+**0.14.0-beta**
+
+## Implemented in repository
+
+- Chrome Extension Manifest V3 runtime with background worker and Facebook content script.
+- Local-first IndexedDB queue, review candidates, locks, schedules, events and retention.
+- Review-before-action workflow: scan → AI draft → edit/regenerate → approve snapshot → prepare composer.
+- Final Facebook submission remains manual.
+- Emergency Stop, pilot caps, account-context binding, durable queue leases and retry/backoff.
+- Firebase Auth + Cloud Firestore with owner-scoped Security Rules and Auth/Firestore emulator integration tests.
+- Revision-aware schedule sync, explicit local/cloud conflicts, revision-aware delete tombstones.
+- Firebase AI Profile and Content Library CRUD.
+- AI Gateway with Firebase ID-token auth, exact trusted gateway-origin pinning, structured model output and provider timeout handling.
+- Cloudflare Durable Object per-UID request quota plus global daily paid-AI request ceiling.
+- Optional Firebase UID allowlist for controlled AI pilots.
+- Telemetry off by default; opt-in uploads allowlisted metadata only.
+- CI/build/release packaging, checksum verification, strict TypeScript and pinned GitHub Actions.
 
 ## Local validation
 
-The standard build/test suite can run without Java:
-
 ```bash
+npm ci
+npm audit --audit-level=high
 npm run check
 ```
 
-Firestore Rules integration tests require Java 21:
+`npm run test:firebase-emulator` additionally requires Java 21. GitHub CI provisions Java and runs the Auth + Firestore emulator suite.
 
-```bash
-npm run test:firebase-emulator
-```
+## Production blockers / external acceptance
 
-CI installs Java 21 automatically.
-
-## Remaining external work
-
-Only real-environment work remains:
+Repository tests do **not** prove production readiness. Before stable promotion:
 
 1. create/select a real Firebase development project;
-2. register a Web App and copy config;
-3. enable Email/Password Auth;
-4. create Firestore;
-5. deploy Security Rules;
-6. verify the same isolation checks against the dev project;
-7. run the controlled Facebook pilot;
-8. promote beta to stable only after pilot acceptance.
+2. enable Email/Password Auth and deliberately provision/approve pilot users;
+3. deploy reviewed Firestore rules/indexes and configure Firebase budget/abuse controls;
+4. build the extension with the exact `VITE_AI_GATEWAY_ORIGIN` and registration disabled;
+5. deploy the Cloudflare Worker + Durable Object with provider secrets, per-UID rate limit, global daily ceiling and pilot UID allowlist;
+6. validate a real Google-signed Firebase ID token against the deployed Worker;
+7. run Chrome MV3 browser E2E and controlled Facebook pilot;
+8. verify delete-vs-update schedule conflicts on two browser profiles/devices;
+9. verify Emergency Stop, telemetry opt-in, quotas and manual-submit boundary;
+10. configure GitHub `main` protection and `production` Environment required reviewers;
+11. promote only after pilot acceptance and explicit stable approval.
 
-No Firebase project is created automatically because ownership and billing choices remain user-controlled.
-
-
-### Phase 12 — Production hardening, PR #16 (pending merge)
-- Firebase Firestore Security Rules emulator verified locally using Java 21 (9/9 tests).
-- Review schedules are the only supported workflow persistence; deprecated cloud campaign writes removed.
-- Firebase Auth UID binding protects local queue/schedules from accidental sync into another Firebase account; telemetry watermark UID-scoped.
-- AI Profile and Content Library CRUD, local runtime analytics, and Facebook adapter robustness were added in feature branch.
-- Still requires live Firebase/Cloudflare configuration, production rate limiting, live Facebook E2E, and authorized GitHub workflow hardening.
-
-
-### Phase 13 — Staging integration (in PR, not deployed)
-
-- Auth and Firestore emulators now run together; tests exercise real Firebase SDK credentials across two users.
-- AI Gateway paid-provider quotas use an atomic per-UID Cloudflare Durable Object, and reject paid requests when no binding is configured.
-- Exact-origin CORS checks apply to POST requests; staging preflight checks Firebase/Web project alignment, emulator mode, extension ID, and DO migration.
-- Local unit/fixture testing and Cloudflare Wrangler dry-run verified; real Firebase/Cloudflare accounts still require the owner's setup and approval.
-- Outstanding production pilot: live tokens, browser verification, deployment costs, Environment reviewers and stable tagging.
+See `docs/STAGING_RUNBOOK.md` and `docs/PRODUCTION_HARDENING_0.14.md`.

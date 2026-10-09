@@ -40,7 +40,7 @@ describe('runtime retention', () => {
     tx.objectStore(CANDIDATES_STORE).put({
       id:'old-review', post:{id:'p',text:'long enough post',sourceUrl:'https://facebook.com',capturedAt:1},
       draft:{text:'draft',strategy:'INSIGHT',confidence:.8,provider:'test',generatedAt:1},
-      state:'REJECTED', createdAt:1, updatedAt: now-retentionPolicy.terminalCandidateMs-1,
+      state:'READY_FOR_REVIEW', createdAt:1, updatedAt: now-retentionPolicy.candidateMs-1,
     })
     tx.objectStore(EVENTS_STORE).put({
       id:'old-event',level:'INFO',category:'SYSTEM',message:'old',

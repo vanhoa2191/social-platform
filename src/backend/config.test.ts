@@ -17,6 +17,7 @@ describe('Firebase backend config', () => {
       appId: '1:123:web:abc',
       messagingSenderId: undefined,
       storageBucket: undefined,
+      allowAccountRegistration: false,
       useEmulators: false,
       authEmulatorHost: '127.0.0.1:9099',
       firestoreEmulatorHost: '127.0.0.1:8080',
@@ -38,6 +39,11 @@ describe('Firebase backend config', () => {
       'https://securetoken.googleapis.com',
       'https://firestore.googleapis.com',
     ]))
+  })
+
+  it('keeps public account registration disabled by default', () => {
+    expect(getBackendConfig(firebaseEnv)?.allowAccountRegistration).toBe(false)
+    expect(getBackendConfig({ ...firebaseEnv, VITE_FIREBASE_ALLOW_REGISTRATION: 'true' })?.allowAccountRegistration).toBe(true)
   })
 
   it('supports local Firebase emulators without production hosts', () => {

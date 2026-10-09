@@ -6,6 +6,8 @@ const firebase = [
   'VITE_FIREBASE_AUTH_DOMAIN=autotool-staging.firebaseapp.com',
   'VITE_FIREBASE_PROJECT_ID=autotool-staging',
   'VITE_FIREBASE_APP_ID=1:123:web:001',
+  'VITE_AI_GATEWAY_ORIGIN=https://autotool-staging.example.workers.dev',
+  'VITE_FIREBASE_ALLOW_REGISTRATION=false',
   'VITE_FIREBASE_USE_EMULATORS=false',
 ].join('\n').replace('AIzaFakeLocalExampleKey', 'AIzaStagingIllustrationKey')
 
@@ -16,6 +18,8 @@ const worker = [
   'FIREBASE_PROJECT_ID = "autotool-staging"',
   'ALLOWED_ORIGINS = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"',
   'AI_PROVIDER = "openai"',
+  'GLOBAL_REQUEST_LIMIT_PER_DAY = "1000"',
+  'ALLOWED_FIREBASE_UIDS = "pilot-user-a,pilot-user-b"',
   '[[durable_objects.bindings]]',
   'name = "RATE_LIMITER"',
   'class_name = "UserRateLimiter"',
