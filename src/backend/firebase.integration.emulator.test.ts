@@ -8,6 +8,7 @@ import {
   connectFirestoreEmulator, deleteDoc, doc, getDoc, getFirestore,
   setDoc, type Firestore,
 } from 'firebase/firestore'
+import { applyScheduleDeletionTombstoneTransaction } from './sync'
 
 const projectId = 'demo-autotool'
 let a: { app: FirebaseApp; auth: Auth; db: Firestore }
@@ -82,6 +83,22 @@ describe('Firebase Auth + Firestore actual SDK integration', () => {
     await setDoc(ref, { ...payload, title: 'Safe updated template', revision: 2 })
     expect((await getDoc(ref)).data()?.title).toBe('Safe updated template')
     await deleteDoc(ref)
+  })
+
+  it('uses a Firestore transaction so a stale delete cannot remove a newer schedule revision', async () => {
+    const uid = a.auth.currentUser!.uid
+    const ref = doc(a.db, 'users', uid, 'schedules', 'cas-delete')
+    const payload = {
+      id: 'cas-delete', localScheduleId: 'cas-delete', browserInstanceId: 'device-1',
+      name: 'CAS delete', enabled: true, intervalMinutes: 60, maxPosts: 5, startHour: 8, endHour: 12,
+      accountContextKey: null, accountLabel: null, revision: 8, definitionUpdatedAt: 8,
+      lastSyncedAt: '2026-10-09T00:00:00.000Z',
+    }
+    await setDoc(ref, payload)
+    expect(await applyScheduleDeletionTombstoneTransaction(a.db, uid, { id: 'cas-delete', baseRevision: 5, deletedAt: 1 })).toBe('conflict')
+    expect((await getDoc(ref)).exists()).toBe(true)
+    expect(await applyScheduleDeletionTombstoneTransaction(a.db, uid, { id: 'cas-delete', baseRevision: 8, deletedAt: 2 })).toBe('deleted')
+    expect((await getDoc(ref)).exists()).toBe(false)
   })
 
   it('denies Firestore access after signing out', async () => {
