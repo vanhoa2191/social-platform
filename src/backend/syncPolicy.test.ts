@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextDefinitionRevision, resolveScheduleSync } from './syncPolicy'
+import { nextDefinitionRevision, resolveScheduleDeletions, resolveScheduleSync } from './syncPolicy'
 import type { RemoteScheduleRecord } from './types'
 
 function row(id: string, revision: number, overrides: Partial<RemoteScheduleRecord> = {}): RemoteScheduleRecord {
@@ -22,6 +22,18 @@ function row(id: string, revision: number, overrides: Partial<RemoteScheduleReco
 }
 
 describe('schedule sync conflict policy', () => {
+  it('never lets an old tombstone delete a newer cloud revision', () => {
+    expect(resolveScheduleDeletions([{ id: 'schedule', baseRevision: 5 }], [row('schedule', 8)]))
+      .toEqual({ idsToDelete: [], idsToClear: [], conflicts: ['schedule'] })
+  })
+
+  it('clears safe or already-applied schedule tombstones', () => {
+    expect(resolveScheduleDeletions(
+      [{ id: 'safe', baseRevision: 8 }, { id: 'gone', baseRevision: 3 }],
+      [row('safe', 8)],
+    )).toEqual({ idsToDelete: ['safe'], idsToClear: ['safe', 'gone'], conflicts: [] })
+  })
+
   it('rebases Keep Local above the newest revision', () => {
     expect(nextDefinitionRevision(10, 11)).toBe(12)
     expect(nextDefinitionRevision(20, 5)).toBe(21)

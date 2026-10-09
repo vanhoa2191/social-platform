@@ -5,6 +5,7 @@ export interface BackendConfig {
   appId: string
   messagingSenderId?: string
   storageBucket?: string
+  allowAccountRegistration: boolean
   useEmulators: boolean
   authEmulatorHost: string
   firestoreEmulatorHost: string
@@ -46,6 +47,7 @@ export function getBackendConfig(
     appId,
     messagingSenderId: value(env, 'VITE_FIREBASE_MESSAGING_SENDER_ID'),
     storageBucket: value(env, 'VITE_FIREBASE_STORAGE_BUCKET'),
+    allowAccountRegistration: booleanValue(value(env, 'VITE_FIREBASE_ALLOW_REGISTRATION')),
     useEmulators: booleanValue(value(env, 'VITE_FIREBASE_USE_EMULATORS')),
     authEmulatorHost,
     firestoreEmulatorHost,

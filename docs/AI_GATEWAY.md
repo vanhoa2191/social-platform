@@ -1,4 +1,4 @@
-# AI Gateway — v0.13 beta
+# AI Gateway — v0.14 beta
 
 The browser sends only minimum required post metadata to a server-side Cloudflare Worker. AI drafts **never** trigger final Facebook Submit; review and final click are manual.
 
@@ -25,3 +25,7 @@ npx wrangler@4 deploy --dry-run --config wrangler.staging.toml
 ```
 
 **Do not deploy yet:** run the [full staging runbook](STAGING_RUNBOOK.md), including real Firebase token verification and manual Facebook pilot. Google-hosted JWKS verification does not accept Firebase Emulator's unsigned tokens.
+
+## v0.14 production controls
+
+Firebase bearer tokens are sent only to the exact `VITE_AI_GATEWAY_ORIGIN` compiled into the extension. Paid providers require the Durable Object binding, a positive `GLOBAL_REQUEST_LIMIT_PER_DAY`, and should use `ALLOWED_FIREBASE_UIDS` during controlled pilots. Registration is disabled by default in controlled builds.

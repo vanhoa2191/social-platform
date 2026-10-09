@@ -1,4 +1,4 @@
-# Testing and release hardening — v0.11.0
+# Testing and release hardening — v0.14.0
 
 ## Validation
 
@@ -32,7 +32,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.11.0 \
+RELEASE_TAG=v0.14.0 \
 npm run package:extension
 ```
 
@@ -56,6 +56,6 @@ Before stable production use, deploy Firestore rules to a development Firebase p
 - user A cannot access `users/B/**`
 
 
-### v0.13 stability gate
+### v0.14 stability gate
 
 Staging needs live Firebase/Cloudflare controlled testing and release sign-off before any production tag. The release workflow's `RELEASE_APPROVED` must come from a manually configured GitHub Actions variable (not a hardcoded literal), and the `production` Environment must require reviewer approval. See `docs/STAGING_RUNBOOK.md`.

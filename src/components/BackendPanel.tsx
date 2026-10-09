@@ -5,6 +5,8 @@ import {
   getCurrentUserEmail,
   resolveScheduleConflictKeepLocal,
   resolveScheduleConflictUseCloud,
+  resolveScheduleDeletionConflictDeleteCloud,
+  resolveScheduleDeletionConflictRestoreCloud,
   sendBackendPasswordReset,
   signInBackend,
   signOutBackend,
@@ -87,6 +89,7 @@ export default function BackendPanel() {
     try {
       await ensureBackendPermission()
       if (authMode === 'register') {
+        if (!backendConfig?.allowAccountRegistration) throw new Error('Đăng ký tài khoản bị khóa trong build này.')
         await createBackendAccount(email.trim(), password)
         setMessage('Đã tạo tài khoản Firebase và đăng nhập.')
       } else {
@@ -156,6 +159,25 @@ export default function BackendPanel() {
     }
   }
 
+  async function resolveDeletionConflict(scheduleId: string, choice: 'restore' | 'delete') {
+    setStatus('loading')
+    setMessage('')
+    try {
+      await ensureBackendPermission()
+      const result = choice === 'restore'
+        ? await resolveScheduleDeletionConflictRestoreCloud(scheduleId, version)
+        : await resolveScheduleDeletionConflictDeleteCloud(scheduleId, version)
+      setSync(result)
+      setMessage(choice === 'restore'
+        ? 'Đã khôi phục lịch cloud mới hơn về runtime local.'
+        : 'Đã xác nhận xóa bản cloud mới hơn.')
+      setStatus('ready')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không giải quyết được xung đột xóa lịch.')
+      setStatus('error')
+    }
+  }
+
   async function logout() {
     setStatus('loading')
     try {
@@ -207,7 +229,9 @@ export default function BackendPanel() {
         <div className="firebase-auth-box">
           <div className="tabs">
             <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Đăng nhập</button>
-            <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>Tạo tài khoản</button>
+            {backendConfig?.allowAccountRegistration && (
+              <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>Tạo tài khoản</button>
+            )}
           </div>
           <div className="backend-login-row">
             <label>
@@ -246,11 +270,31 @@ export default function BackendPanel() {
             <span>Provider: <b>Firebase</b></span>
             <span>Browser: <b>{sync.browserInstanceId?.slice(0, 8) ?? 'local'}</b></span>
             <span>Schedules push: <b>{sync.schedulesPushed}</b></span><span>Schedules pull: <b>{sync.schedulesPulled}</b></span>
+            <span>Schedules deleted: <b>{sync.schedulesDeleted}</b></span>
+            <span>Delete conflicts: <b>{sync.deletionConflicts}</b></span>
             <span>Events: <b>{sync.eventsPushed}</b></span>
             <span>Remote schedules: <b>{sync.remoteSchedules}</b></span>
             <span>Conflicts: <b>{sync.conflicts}</b></span>
             <span>Telemetry: <b>{sync.telemetryEnabled ? 'opt-in' : 'off'}</b></span>
           </div>
+
+          {sync.deletionConflictScheduleIds.length > 0 && (
+            <div className="backend-conflicts">
+              <div>
+                <strong>Có {sync.deletionConflictScheduleIds.length} lịch cloud đã được sửa sau khi bản local bị xóa</strong>
+                <span>AutoTool không xóa bản cloud mới hơn cho tới khi bạn chọn rõ khôi phục hay xóa.</span>
+              </div>
+              {sync.deletionConflictScheduleIds.map((scheduleId) => (
+                <div className="backend-conflict-row" key={'delete:' + scheduleId}>
+                  <code>{scheduleId}</code>
+                  <div className="button-row">
+                    <button className="secondary" disabled={status === 'loading'} onClick={() => void resolveDeletionConflict(scheduleId, 'restore')}>Khôi phục bản cloud</button>
+                    <button className="primary" disabled={status === 'loading'} onClick={() => void resolveDeletionConflict(scheduleId, 'delete')}>Xác nhận xóa cloud</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {sync.conflictScheduleIds.length > 0 && (
             <div className="backend-conflicts">

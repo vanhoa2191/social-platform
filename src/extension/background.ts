@@ -1,5 +1,5 @@
 import { localMockAiProvider, type AiDraftProvider } from '../automation/aiProvider'
-import { createGatewayAiProvider, isSupportedGatewayUrl, normalizeGatewayUrl } from '../ai/gatewayProvider'
+import { createGatewayAiProvider, isSupportedGatewayUrl, isTrustedFirebaseGatewayUrl, normalizeGatewayUrl, trustedFirebaseGatewayOrigin } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { CandidateState, ReviewCandidate } from '../automation/model'
 import { getCandidate, listCandidates, patchCandidate, upsertCandidate, clearCandidates } from '../automation/reviewStore'
@@ -7,7 +7,7 @@ import { assertTransition } from '../automation/stateMachine'
 import { approvalSnapshot, shouldGenerateForScannedPost } from '../automation/reviewPolicy'
 import { AutomationError, classifyAutomationError } from '../automation/errors'
 import { isSupportedFacebookUrl } from '../core/helpers'
-import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, renewJobLease, updateJob } from './queue'
+import { claimDueJobs, clearQueue, countJobs, enqueueJob, listJobs, renewJobLease, skipPendingJobs, updateJob } from './queue'
 import { acquireLock, releaseLock, renewLock } from '../runtime/locks'
 import { clearRuntimeEvents, listRuntimeEvents, listRuntimeEventsAfter, logRuntimeEvent } from '../runtime/events'
 import { applyRemoteSchedule, deleteSchedule, listSchedules, markScheduleRun, scheduleCanRun, setScheduleDefinitionRevision, touchSchedule, upsertSchedule } from '../runtime/schedules'
@@ -87,6 +87,10 @@ async function sendToContent<T>(tabId: number, request: ContentRequest): Promise
 
 async function getGatewayBearer(settings: AiGatewaySettings): Promise<string | undefined> {
   if (settings.authMode === 'token') return getAiGatewayToken()
+  const trustedOrigin = trustedFirebaseGatewayOrigin()
+  if (!trustedOrigin || !isTrustedFirebaseGatewayUrl(settings.gatewayUrl, trustedOrigin)) {
+    throw new Error('Firebase ID token chỉ được gửi tới AI Gateway origin đã pin trong build.')
+  }
   const auth = await getFirebaseAuth()
   if (!auth) throw new Error('Firebase chưa được cấu hình cho AI Gateway auth.')
   await auth.authStateReady()
@@ -581,7 +585,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SET_EMERGENCY_STOP') {
-        sendResponse({ ok: true, data: await setEmergencyStop(message.enabled) })
+        const state = await setEmergencyStop(message.enabled)
+        if (message.enabled) {
+          const skipped = await skipPendingJobs('Cancelled by Emergency Stop')
+          await logRuntimeEvent('WARN', 'SYSTEM', `Emergency Stop bật; đã hủy ${skipped} job đang chờ.`)
+        }
+        sendResponse({ ok: true, data: state })
         return
       }
       if (message.type === 'AI_SETTINGS_GET') {
@@ -593,6 +602,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         const normalizedGatewayUrl = normalizeGatewayUrl(message.settings.gatewayUrl)
         if (message.settings.mode === 'gateway' && !isSupportedGatewayUrl(normalizedGatewayUrl)) {
           throw new Error('Gateway production phải dùng HTTPS *.workers.dev; localhost chỉ dành cho dev.')
+        }
+        if (message.settings.mode === 'gateway' && message.settings.authMode === 'firebase') {
+          const trustedOrigin = trustedFirebaseGatewayOrigin()
+          if (!trustedOrigin || !isTrustedFirebaseGatewayUrl(normalizedGatewayUrl, trustedOrigin)) {
+            throw new Error('Firebase auth yêu cầu Gateway URL trùng chính xác VITE_AI_GATEWAY_ORIGIN đã pin khi build.')
+          }
         }
         const settings: AiGatewaySettings = {
           ...message.settings,
@@ -660,7 +675,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SCHEDULE_DELETE') {
-        await addScheduleTombstone(message.scheduleId)
+        const current = (await listSchedules()).find((item) => item.id === message.scheduleId)
+        await addScheduleTombstone({
+          id: message.scheduleId,
+          baseRevision: current?.definitionRevision ?? 0,
+          deletedAt: Date.now(),
+        })
         await deleteSchedule(message.scheduleId)
         await logRuntimeEvent('INFO', 'SCHEDULER', 'Đã xóa lịch chạy.')
         sendResponse({ ok: true, data: { deleted: true } })
@@ -682,6 +702,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'SCHEDULE_RUN_NOW') {
+        await ensureAutomationAllowed()
         const schedule = (await listSchedules()).find((item) => item.id === message.scheduleId)
         if (!schedule) throw new Error('Không tìm thấy lịch chạy.')
         if (!schedule.accountBinding) throw new Error('Lịch cũ chưa bind account context. Hãy sửa và lưu lại lịch.')
@@ -741,6 +762,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'QUEUE_ENQUEUE') {
+        await ensureAutomationAllowed()
         const response: ExtensionResponse<QueueJob> = { ok: true, data: await enqueueJob(message.job) }
         sendResponse(response)
         return

@@ -2,8 +2,8 @@ import { build } from 'esbuild'
 
 await build({
   bundle: true,
-  minify: false,
-  sourcemap: true,
+  minify: true,
+  sourcemap: process.env.BUILD_SOURCEMAP === '1',
   target: ['es2022'],
   entryPoints: ['src/gateway/worker.ts'],
   outfile: 'dist-gateway/worker.js',

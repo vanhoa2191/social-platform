@@ -85,3 +85,27 @@ export async function clearQueue(): Promise<void> {
   await transactionDone(tx)
   db.close()
 }
+
+export async function skipPendingJobs(reason: string): Promise<number> {
+  const db = await openRuntimeDb()
+  const tx = db.transaction(JOBS_STORE, 'readwrite')
+  const store = tx.objectStore(JOBS_STORE)
+  const jobs = await requestToPromise(store.getAll() as IDBRequest<QueueJob[]>)
+  const now = Date.now()
+  let skipped = 0
+  for (const job of jobs) {
+    if (job.state !== 'PENDING') continue
+    store.put({
+      ...job,
+      state: 'SKIPPED',
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      lastError: reason,
+      updatedAt: now,
+    })
+    skipped += 1
+  }
+  await transactionDone(tx)
+  db.close()
+  return skipped
+}

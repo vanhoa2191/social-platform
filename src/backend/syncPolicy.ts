@@ -56,3 +56,34 @@ export function resolveScheduleSync(
 export function nextDefinitionRevision(localRevision: number, remoteRevision: number): number {
   return Math.max(1, Math.trunc(localRevision) || 1, Math.trunc(remoteRevision) || 0) + 1
 }
+
+export interface ScheduleDeletionTombstone {
+  id: string
+  baseRevision: number
+}
+
+export interface ScheduleDeletionDecision {
+  idsToDelete: string[]
+  idsToClear: string[]
+  conflicts: string[]
+}
+
+export function resolveScheduleDeletions(
+  tombstones: ScheduleDeletionTombstone[],
+  remoteRows: RemoteScheduleRecord[],
+): ScheduleDeletionDecision {
+  const remoteById = new Map(remoteRows.map((row) => [row.localScheduleId, row]))
+  const idsToDelete: string[] = []
+  const idsToClear: string[] = []
+  const conflicts: string[] = []
+
+  for (const tombstone of tombstones) {
+    const remote = remoteById.get(tombstone.id)
+    if (!remote) { idsToClear.push(tombstone.id); continue }
+    if (remote.revision > tombstone.baseRevision) { conflicts.push(tombstone.id); continue }
+    idsToDelete.push(tombstone.id)
+    idsToClear.push(tombstone.id)
+  }
+
+  return { idsToDelete, idsToClear, conflicts }
+}

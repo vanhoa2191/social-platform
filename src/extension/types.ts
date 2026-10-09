@@ -12,7 +12,7 @@ export type JobState =
   | 'FAILED'
   | 'SKIPPED'
 
-export type JobType = 'SCAN_FEED' | 'CREATE_REVIEW_CANDIDATES' | 'AI_DRAFT' | 'REVIEW'
+export type JobType = 'SCAN_FEED' | 'CREATE_REVIEW_CANDIDATES'
 
 export interface QueueJob {
   id: string

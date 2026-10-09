@@ -2,7 +2,7 @@
 
 Campaign-centric Chrome Extension MV3 runtime with optional AI Gateway and Firebase cloud backend.
 
-Current version: **0.13.0-beta**
+Current version: **0.14.0-beta**
 
 ## Architecture
 
@@ -42,8 +42,8 @@ AutoTool remains usable in **local-only mode** without Firebase.
 
 Authentication currently supports:
 
-- Email/password account creation
 - Email/password sign-in
+- Account creation is disabled by default in controlled/stable builds; approved users should be provisioned deliberately
 - Password reset
 - Sign-out
 
@@ -106,6 +106,7 @@ npm run dev
 ## Validate
 
 ```bash
+npm audit --audit-level=high
 npm run check
 ```
 
@@ -120,7 +121,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.13.0 \
+RELEASE_TAG=v0.14.0 \
 npm run package:extension
 ```
 
@@ -140,14 +141,14 @@ npm run package:extension
 - `docs/PILOT.md`
 
 
-### Local-first account isolation (v0.12)
+### Local-first account isolation (v0.14)
 
 The **first manual cloud sync** binds this Chrome profile's local queue, schedules and runtime event data to one Firebase UID. Signing into another Firebase account on the same Chrome profile does **not** transfer that local data; syncing is blocked to avoid cross-account disclosure. Use a separate Chrome profile for another Firebase user. Event cursors are UID-scoped and telemetry requires opt-in. Firebase Auth and Firestore Security Rules protect cloud data, but still require verification against a real project before rollout.
 
 The retired cloud `campaigns` repository/model is disabled; supported pilot workflows use local schedules plus explicit Firebase schedule sync. AI Profiles and Content Library are cloud-backed catalogs, not yet connected as runtime generation configuration.
 
 
-## Firebase + Cloudflare staging pilot (Phase 13)
+## Firebase + Cloudflare staging pilot (v0.14)
 
 The repository includes Auth/Firestore emulator integration, an exact-origin staging configuration preflight, and a Cloudflare Durable Object quota. **No real Firebase/Cloudflare service is automatically deployed.** See [staging runbook](docs/STAGING_RUNBOOK.md).
 
@@ -156,4 +157,8 @@ npm run test:firebase-emulator
 npm run preflight:staging -- .env.staging.local wrangler.staging.toml
 ```
 
-Paid AI Gateway requests fail closed if `RATE_LIMITER` is missing. Do not set `RELEASE_APPROVED` for a stable release until live staging acceptance and required GitHub environment reviewers are configured.
+Paid AI Gateway requests fail closed if `RATE_LIMITER`, the global daily request ceiling, or required production configuration is missing. Controlled pilots should also set `ALLOWED_FIREBASE_UIDS`. Firebase ID tokens are sent only to the exact `VITE_AI_GATEWAY_ORIGIN` compiled into the extension. Do not set `RELEASE_APPROVED` for a stable release until live staging acceptance and required GitHub environment reviewers are configured.
+
+## Stable production build variables
+
+The `production` GitHub Environment must define `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, `VITE_AI_GATEWAY_ORIGIN` and `RELEASE_APPROVED`. The release workflow forces registration and emulator mode off and fails closed when required production build variables are missing.

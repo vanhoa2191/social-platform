@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { defaultAiGatewaySettings, type AiGatewaySettings } from '../ai/contracts'
+import { isTrustedFirebaseGatewayUrl, trustedFirebaseGatewayOrigin } from '../ai/gatewayProvider'
 import {
   getAiSettings,
   isExtensionRuntime,
@@ -45,6 +46,13 @@ export default function AiGatewayPanel() {
 
     try {
       if (settings.mode === 'gateway') {
+        if (settings.authMode === 'firebase') {
+          const trustedOrigin = trustedFirebaseGatewayOrigin()
+          if (!trustedOrigin || !isTrustedFirebaseGatewayUrl(settings.gatewayUrl, trustedOrigin)) {
+            setMessage('Firebase auth chỉ cho phép Gateway URL trùng origin đã pin khi build.')
+            return
+          }
+        }
         const permission = await requestGatewayOriginPermission(settings.gatewayUrl)
         if (!permission.ok) {
           setMessage(permission.error)

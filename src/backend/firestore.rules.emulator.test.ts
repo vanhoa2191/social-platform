@@ -190,6 +190,21 @@ describe('Firestore Security Rules', () => {
     await assertSucceeds(deleteDoc(ref))
   })
 
+  it('rejects oversized schedule metadata and malformed telemetry timestamps', async () => {
+    const db = env.authenticatedContext('user-a').firestore()
+    const schedule = {
+      id: 'schedule-hardening', localScheduleId: 'schedule-hardening', browserInstanceId: 'device-1',
+      name: 'Review', enabled: true, intervalMinutes: 60, maxPosts: 5, startHour: 8, endHour: 12,
+      accountContextKey: 'account', accountLabel: 'x'.repeat(201), revision: 1, definitionUpdatedAt: 1,
+      lastSyncedAt: '2026-10-09T00:00:00.000Z',
+    }
+    await assertFails(setDoc(doc(db, 'users/user-a/schedules/schedule-hardening'), schedule))
+    await assertFails(setDoc(doc(db, 'users/user-a/analyticsEvents/bad-time'), {
+      browserInstanceId: 'device-1', localEventId: 'bad-time', eventType: 'system', category: 'SYSTEM',
+      level: 'INFO', payload: { schemaVersion: 1 }, occurredAt: 123,
+    }))
+  })
+
   it('enforces owner-only Content Library CRUD with kind and size validation', async () => {
     const owner = env.authenticatedContext('user-a').firestore()
     const other = env.authenticatedContext('user-b').firestore()

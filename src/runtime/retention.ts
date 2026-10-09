@@ -16,7 +16,7 @@ const DAY = 24 * 60 * 60 * 1000
 export const retentionPolicy = {
   successJobMs: 14 * DAY,
   terminalJobMs: 30 * DAY,
-  terminalCandidateMs: 30 * DAY,
+  candidateMs: 30 * DAY,
   eventMs: 30 * DAY,
   maxEvents: 10_000,
 }
@@ -60,10 +60,7 @@ export async function cleanupRuntimeData(now = Date.now()): Promise<RetentionSum
 
   let candidatesDeleted = 0
   for (const candidate of candidates) {
-    if (
-      ['PREPARED', 'REJECTED', 'FAILED'].includes(candidate.state)
-      && now - candidate.updatedAt > retentionPolicy.terminalCandidateMs
-    ) {
+    if (now - candidate.updatedAt > retentionPolicy.candidateMs) {
       candidatesStore.delete(candidate.id)
       candidatesDeleted += 1
     }

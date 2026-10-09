@@ -1,7 +1,7 @@
 {
   "name": "social-platform",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.14.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,7 +20,8 @@
     "test:firebase-emulator": "npx --yes firebase-tools@15.32.1 emulators:exec --only auth,firestore --project demo-autotool \"npm run test:emulator-suite\"",
     "test:firebase-integration": "vitest run src/backend/firebase.integration.emulator.test.ts",
     "test:emulator-suite": "vitest run src/backend/firestore.rules.emulator.test.ts src/backend/firebase.integration.emulator.test.ts",
-    "preflight:staging": "node scripts/preflight-staging.mjs"
+    "preflight:staging": "node scripts/preflight-staging.mjs",
+    "preflight:release": "node scripts/preflight-release.mjs"
   },
   "dependencies": {
     "firebase": "^12.19.0",
