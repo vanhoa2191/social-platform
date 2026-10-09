@@ -2,7 +2,7 @@
 
 Campaign-centric Chrome Extension MV3 runtime with optional AI Gateway and Firebase cloud backend.
 
-Current version: **0.11.0-beta**
+Current version: **0.12.0-beta**
 
 ## Architecture
 
@@ -121,7 +121,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.11.0 \
+RELEASE_TAG=v0.12.0 \
 npm run package:extension
 ```
 
@@ -139,3 +139,10 @@ npm run package:extension
 - `docs/FIREBASE_SECURITY.md`
 - `docs/RELEASE.md`
 - `docs/PILOT.md`
+
+
+### Local-first account isolation (v0.12)
+
+The **first manual cloud sync** binds this Chrome profile's local queue, schedules and runtime event data to one Firebase UID. Signing into another Firebase account on the same Chrome profile does **not** transfer that local data; syncing is blocked to avoid cross-account disclosure. Use a separate Chrome profile for another Firebase user. Event cursors are UID-scoped and telemetry requires opt-in. Firebase Auth and Firestore Security Rules protect cloud data, but still require verification against a real project before rollout.
+
+The retired cloud `campaigns` repository/model is disabled; supported pilot workflows use local schedules plus explicit Firebase schedule sync. AI Profiles and Content Library are cloud-backed catalogs, not yet connected as runtime generation configuration.

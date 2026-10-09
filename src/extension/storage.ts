@@ -10,17 +10,11 @@ const AI_TOKEN_KEY = 'autotool.aiGatewayToken'
 const PILOT_SETTINGS_KEY = 'autotool.pilotSettings'
 
 export interface ExtensionSettings {
-  reviewBeforeAction: boolean
   maxActionsPerSession: number
-  delayMinSeconds: number
-  delayMaxSeconds: number
 }
 
 export const defaultSettings: ExtensionSettings = {
-  reviewBeforeAction: true,
   maxActionsPerSession: 20,
-  delayMinSeconds: 30,
-  delayMaxSeconds: 90,
 }
 
 export const defaultSafetyState: AutomationSafetyState = {
@@ -30,7 +24,8 @@ export const defaultSafetyState: AutomationSafetyState = {
 
 export async function getSettings(): Promise<ExtensionSettings> {
   const result = await chrome.storage.local.get(SETTINGS_KEY)
-  return { ...defaultSettings, ...(result[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined) }
+  const stored = result[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined
+  return { maxActionsPerSession: Math.max(1, Math.min(20, Number(stored?.maxActionsPerSession ?? defaultSettings.maxActionsPerSession) || 20)) }
 }
 
 export async function saveSettings(settings: ExtensionSettings): Promise<void> {

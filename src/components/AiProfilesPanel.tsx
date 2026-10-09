@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listRemoteAiProfiles, upsertRemoteAiProfile, type AiProfileRecord } from '../backend/repository'
+import { deleteRemoteAiProfile, listRemoteAiProfiles, upsertRemoteAiProfile, type AiProfileRecord } from '../backend/repository'
 
 export default function AiProfilesPanel() {
   const [items, setItems] = useState<AiProfileRecord[]>([])
@@ -47,6 +47,21 @@ export default function AiProfilesPanel() {
     }
   }
 
+  async function remove(item: AiProfileRecord) {
+    if (!item.id || !window.confirm(`Xóa AI Profile "${item.name}"?`)) return
+    setBusy(true)
+    try {
+      await deleteRemoteAiProfile(item.id)
+      if (editing?.id === item.id) { setEditing(null); setName(''); setPersona('') }
+      await reload()
+      setMessage('Đã xóa AI Profile.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể xóa AI Profile.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return <section className="panel">
     <div className="panel-head"><div><h3>Hồ sơ AI Firebase</h3><p>Cần cấu hình Firebase và đăng nhập để tạo hoặc chỉnh sửa.</p></div>
       <button className="secondary" onClick={() => void reload()}>Làm mới</button></div>
@@ -60,7 +75,10 @@ export default function AiProfilesPanel() {
     </div>
     <div className="crud-list">{items.map(item => <div key={item.id} className="crud-item">
       <div><strong>{item.name}</strong><p>{item.persona || 'Chưa có persona'}</p></div>
-      <button className="secondary" onClick={() => { setEditing(item); setName(item.name); setPersona(item.persona ?? '') }}>Sửa</button>
+      <div className="gateway-actions">
+        <button className="secondary" disabled={busy} onClick={() => { setEditing(item); setName(item.name); setPersona(item.persona ?? '') }}>Sửa</button>
+        <button className="secondary" disabled={busy} onClick={() => void remove(item)}>Xóa</button>
+      </div>
     </div>)}</div>
     {items.length === 0 && <p>Chưa có profile trên Firebase.</p>}
     {message && <div className="runtime-message">{message}</div>}

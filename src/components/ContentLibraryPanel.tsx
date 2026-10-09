@@ -39,7 +39,7 @@ export default function ContentLibraryPanel() {
   }
 
   async function remove(id?: string) {
-    if (!id) return
+    if (!id || !window.confirm('Xóa mục nội dung này khỏi Firebase?')) return
     setBusy(true)
     try {
       await deleteRemoteContentItem(id)

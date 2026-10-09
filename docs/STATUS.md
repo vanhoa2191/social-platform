@@ -89,7 +89,7 @@
 
 ## Current product version
 
-0.11.0-beta
+0.12.0-beta
 
 ## Local validation
 
@@ -121,3 +121,11 @@ Only real-environment work remains:
 8. promote beta to stable only after pilot acceptance.
 
 No Firebase project is created automatically because ownership and billing choices remain user-controlled.
+
+
+### Phase 12 — Production hardening, PR #16 (pending merge)
+- Firebase Firestore Security Rules emulator verified locally using Java 21 (9/9 tests).
+- Review schedules are the only supported workflow persistence; deprecated cloud campaign writes removed.
+- Firebase Auth UID binding protects local queue/schedules from accidental sync into another Firebase account; telemetry watermark UID-scoped.
+- AI Profile and Content Library CRUD, local runtime analytics, and Facebook adapter robustness were added in feature branch.
+- Still requires live Firebase/Cloudflare configuration, production rate limiting, live Facebook E2E, and authorized GitHub workflow hardening.

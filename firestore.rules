@@ -61,19 +61,6 @@ service cloud.firestore {
           && request.resource.data.metadata.runtime in ['extension', 'web-preview'];
       }
 
-      match /campaigns/{campaignId} {
-        allow read, delete: if isOwner(userId);
-        allow create, update: if isOwner(userId)
-          && hasOnly(['id', 'name', 'type', 'status', 'config', 'revision', 'updatedAt'])
-          && request.resource.data.id == campaignId
-          && request.resource.data.name is string
-          && request.resource.data.name.size() <= 200
-          && request.resource.data.type is string
-          && request.resource.data.status in ['draft', 'active', 'paused', 'archived']
-          && request.resource.data.revision is int
-          && request.resource.data.revision >= 1;
-      }
-
       match /aiProfiles/{profileId} {
         allow read, delete: if isOwner(userId);
         allow create: if isOwner(userId) && validProfile(profileId) && request.resource.data.revision >= 1;

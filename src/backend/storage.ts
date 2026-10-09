@@ -1,7 +1,8 @@
 import type { RuntimeEventCursor } from '../runtime/types'
 
 const DEVICE_KEY = 'autotool.backend.deviceKey'
-const EVENT_WATERMARK_KEY = 'autotool.backend.eventWatermark'
+const EVENT_WATERMARK_KEY = 'autotool.backend.eventWatermark.v2'
+const LOCAL_OWNER_KEY = 'autotool.backend.localDataOwnerUid'
 
 function extensionRuntime(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.storage?.local)
@@ -36,13 +37,34 @@ export async function getOrCreateDeviceKey(): Promise<string> {
   return created
 }
 
-export async function getEventWatermark(): Promise<RuntimeEventCursor | undefined> {
-  const current = await getValue<RuntimeEventCursor | number>(EVENT_WATERMARK_KEY)
-  if (typeof current === 'number') return { createdAt: current, id: '\uffff' }
+export function assertLocalDataOwnership(boundUid: string | undefined, currentUid: string): void {
+  if (!currentUid) throw new Error('Firebase user ID không hợp lệ.')
+  if (boundUid && boundUid !== currentUid) {
+    throw new Error(
+      'Dữ liệu workflow local thuộc một tài khoản Firebase khác. '
+      + 'Không thể đồng bộ sang tài khoản hiện tại để tránh lộ dữ liệu. '
+      + 'Hãy dùng Chrome profile riêng cho mỗi tài khoản.',
+    )
+  }
+}
+
+export async function claimLocalDataOwner(userUid: string): Promise<void> {
+  const boundUid = await getValue<string>(LOCAL_OWNER_KEY)
+  assertLocalDataOwnership(boundUid, userUid)
+  if (!boundUid) {
+    await setValue(LOCAL_OWNER_KEY, userUid)
+    assertLocalDataOwnership(await getValue<string>(LOCAL_OWNER_KEY), userUid)
+  }
+}
+
+export async function getEventWatermark(userUid: string): Promise<RuntimeEventCursor | undefined> {
+  if (!userUid) return undefined
+  const current = await getValue<RuntimeEventCursor>(`${EVENT_WATERMARK_KEY}:${userUid}`)
   if (current && typeof current.createdAt === 'number' && typeof current.id === 'string') return current
   return undefined
 }
 
-export async function setEventWatermark(value: RuntimeEventCursor): Promise<void> {
-  await setValue(EVENT_WATERMARK_KEY, value)
+export async function setEventWatermark(userUid: string, value: RuntimeEventCursor): Promise<void> {
+  if (!userUid) throw new Error('Firebase user ID không hợp lệ.')
+  await setValue(`${EVENT_WATERMARK_KEY}:${userUid}`, value)
 }

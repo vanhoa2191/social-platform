@@ -34,3 +34,14 @@ Requires user-owned external resources:
 - pilot acceptance decision
 
 At this point, remaining work is environment deployment and controlled validation rather than missing core repository architecture.
+
+
+## Phase 12 — Production hardening (PR #16, pending merge)
+- [x] Firebase Emulator testing for Security Rules on user-space Java 21
+- [x] Owner-only AI Profile / Content Library rules tests and schema validation
+- [x] Local cloud-sync owner binding and UID-scoped telemetry cursors
+- [x] Retired campaign cloud-domain cleanup
+- [ ] Real Firebase and Cloudflare Worker staging pilot
+- [ ] Real Facebook composer E2E and manual-submit verification
+- [ ] Production-wide rate limiting/quota and release GitHub Environment reviewers
+- [ ] GitHub workflow SHA pinning with authorized workflow-scoped credentials
