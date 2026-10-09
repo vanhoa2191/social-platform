@@ -21,27 +21,20 @@ Phase 11 adds:
 - Java 21 emulator validation in CI and release
 - Firebase emulator visibility in Settings
 
-## Phase 12 — Real environment pilot — NEXT
+## Phase 12 — Production hardening — MERGED (#16)
 
-Requires user-owned external resources:
+- Firebase Auth ID token verification, CORS, MV3 permission restrictions
+- Cloud Firestore CRUD catalogs, owner-only Rules, local data owner isolation
+- 64/64 unit/fixture and 9/9 Firestore Rules checks; CI green at merge
 
-- Firebase development project
-- Firebase Web App config
-- Email/Password Auth enabled
-- Firestore database
-- deployed Security Rules
-- approved Facebook test accounts
-- pilot acceptance decision
+## Phase 13 — Staging integration & quota (IN BRANCH)
 
-At this point, remaining work is environment deployment and controlled validation rather than missing core repository architecture.
-
-
-## Phase 12 — Production hardening (PR #16, pending merge)
-- [x] Firebase Emulator testing for Security Rules on user-space Java 21
-- [x] Owner-only AI Profile / Content Library rules tests and schema validation
-- [x] Local cloud-sync owner binding and UID-scoped telemetry cursors
-- [x] Retired campaign cloud-domain cleanup
-- [ ] Real Firebase and Cloudflare Worker staging pilot
-- [ ] Real Facebook composer E2E and manual-submit verification
-- [ ] Production-wide rate limiting/quota and release GitHub Environment reviewers
-- [ ] GitHub workflow SHA pinning with authorized workflow-scoped credentials
+- [x] Add real Firebase Auth + Firestore emulator integration tests
+- [x] Replace in-memory paid-provider quota with per-UID Durable Object counter
+- [x] Fail closed when paid AI provider lacks quota binding
+- [x] Harden gateway request origin checks and sanitize upstream error output
+- [x] Add staging preflight, .env/wrangler ignores and staging runbook
+- [ ] Obtain user-owned Firebase staging Web config and deployment approval
+- [ ] Deploy dev Firestore Rules and Cloudflare Worker with real Firebase auth
+- [ ] Real Chrome/Facebook manual-submit pilot with account isolation and audit
+- [ ] Approve stable release only after pilot and GitHub Environment review

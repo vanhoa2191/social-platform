@@ -2,7 +2,7 @@
 
 Campaign-centric Chrome Extension MV3 runtime with optional AI Gateway and Firebase cloud backend.
 
-Current version: **0.12.0-beta**
+Current version: **0.13.0-beta**
 
 ## Architecture
 
@@ -21,7 +21,6 @@ Chrome Extension
     ├── Authentication
     ├── Cloud Firestore
     ├── browser instances
-    ├── campaigns
     ├── AI profiles
     ├── schedules
     └── opt-in analytics metadata
@@ -121,7 +120,7 @@ RELEASE_CHANNEL=beta npm run package:extension
 ```bash
 RELEASE_CHANNEL=stable \
 RELEASE_APPROVED=1 \
-RELEASE_TAG=v0.12.0 \
+RELEASE_TAG=v0.13.0 \
 npm run package:extension
 ```
 
@@ -146,3 +145,15 @@ npm run package:extension
 The **first manual cloud sync** binds this Chrome profile's local queue, schedules and runtime event data to one Firebase UID. Signing into another Firebase account on the same Chrome profile does **not** transfer that local data; syncing is blocked to avoid cross-account disclosure. Use a separate Chrome profile for another Firebase user. Event cursors are UID-scoped and telemetry requires opt-in. Firebase Auth and Firestore Security Rules protect cloud data, but still require verification against a real project before rollout.
 
 The retired cloud `campaigns` repository/model is disabled; supported pilot workflows use local schedules plus explicit Firebase schedule sync. AI Profiles and Content Library are cloud-backed catalogs, not yet connected as runtime generation configuration.
+
+
+## Firebase + Cloudflare staging pilot (Phase 13)
+
+The repository includes Auth/Firestore emulator integration, an exact-origin staging configuration preflight, and a Cloudflare Durable Object quota. **No real Firebase/Cloudflare service is automatically deployed.** See [staging runbook](docs/STAGING_RUNBOOK.md).
+
+```bash
+npm run test:firebase-emulator
+npm run preflight:staging -- .env.staging.local wrangler.staging.toml
+```
+
+Paid AI Gateway requests fail closed if `RATE_LIMITER` is missing. Do not set `RELEASE_APPROVED` for a stable release until live staging acceptance and required GitHub environment reviewers are configured.

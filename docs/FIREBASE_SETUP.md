@@ -15,7 +15,7 @@ Run:
 npm run test:firebase-emulator
 ```
 
-This launches a demo Firestore emulator and executes Security Rules tests.
+This runs **Auth and Firestore** emulators, Firestore Security Rules tests, and real Firebase SDK auth/CRUD/cross-user integration tests.
 
 For application development against emulators, configure:
 
@@ -25,7 +25,7 @@ VITE_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
 VITE_FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 ```
 
-Then start the Firebase Auth + Firestore emulators separately with Firebase CLI.
+For interactive app development, start the Firebase Auth + Firestore emulators separately with Firebase CLI. Do not use emulator credentials against a deployed Cloudflare Worker.
 
 ## 2. Create/select a real project
 
@@ -102,3 +102,8 @@ Open Settings → Firebase Backend & Sync.
 ## Optional later
 
 Google Sign-In can be added using Firebase's Manifest V3 offscreen-document flow. It is not required for the current email/password pilot.
+
+
+## Phase 13 staging
+
+For exact origin restrictions, Durable Object quota and deploy-approval steps see [STAGING_RUNBOOK.md](STAGING_RUNBOOK.md). Prepare a separate dev Firebase project and do not deploy to production without approval.

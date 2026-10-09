@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import worker from './worker'
+import worker, { UserRateLimiter } from './worker'
 
 describe('AI gateway worker', () => {
   it('reports health in mock mode', async () => {
@@ -98,6 +98,68 @@ describe('AI gateway worker', () => {
     const good = await worker.fetch(new Request('https://gateway.test/v1/comment', { method: 'OPTIONS', headers: { origin: 'https://dashboard.example' } }), env)
     expect(good.status).toBe(204)
     expect(good.headers.get('access-control-allow-origin')).toBe('https://dashboard.example')
+  })
+
+  it('rejects actual cross-origin POST requests, not only preflight', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { origin: 'https://untrusted.example', 'content-type': 'application/json' },
+      body: '{}',
+    }), { AI_PROVIDER: 'mock', ALLOWED_ORIGINS: 'chrome-extension://trusted-extension-id' })
+    expect(response.status).toBe(403)
+    expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('requires a durable quota for paid AI providers, even with a valid shared dev token', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { authorization: 'Bearer shared-dev-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ post: { id: '123', text: 'Review an example post.' }, promptVersion: 'comment-v2' }),
+    }), { AI_PROVIDER: 'openai', GATEWAY_TOKEN: 'shared-dev-token' })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ error: 'Production quota binding missing' })
+  })
+
+  it('enforces the durable quota before attempting paid provider calls', async () => {
+    const response = await worker.fetch(new Request('https://gateway.test/v1/comment', {
+      method: 'POST',
+      headers: { authorization: 'Bearer shared-dev-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ post: { id: '123', text: 'Review an example post.' }, promptVersion: 'comment-v2' }),
+    }), {
+      AI_PROVIDER: 'openai',
+      GATEWAY_TOKEN: 'shared-dev-token',
+      RATE_LIMITER: {
+        idFromName: (key: string) => key,
+        get: () => ({ fetch: async () => new Response(null, { status: 429 }) }),
+      },
+    })
+    expect(response.status).toBe(429)
+  })
+
+  it('increments a Durable Object quota atomically and refuses excess requests', async () => {
+    const values = new Map<string, unknown>()
+    const instance = new UserRateLimiter({
+      storage: {
+        transaction: async <T>(callback: (tx: {
+          get<TValue>(key: string): Promise<TValue | undefined>;
+          put(key: string, value: unknown): Promise<void>;
+        }) => Promise<T>) => callback({
+          get: async <TValue>(key: string) => values.get(key) as TValue | undefined,
+          put: async (key: string, value: unknown) => { values.set(key, value) },
+        }),
+      },
+    })
+    const consume = () => instance.fetch(new Request('https://rate-limit.internal/consume', {
+      method: 'POST',
+      body: JSON.stringify({ limit: 2 }),
+    }))
+    expect((await consume()).status).toBe(204)
+    expect((await consume()).status).toBe(204)
+    expect((await consume()).status).toBe(429)
+    const invalid = await instance.fetch(new Request('https://rate-limit.internal/consume', {
+      method: 'POST', body: JSON.stringify({ limit: -1 }),
+    }))
+    expect(invalid.status).toBe(400)
   })
 
 })

@@ -129,3 +129,12 @@ No Firebase project is created automatically because ownership and billing choic
 - Firebase Auth UID binding protects local queue/schedules from accidental sync into another Firebase account; telemetry watermark UID-scoped.
 - AI Profile and Content Library CRUD, local runtime analytics, and Facebook adapter robustness were added in feature branch.
 - Still requires live Firebase/Cloudflare configuration, production rate limiting, live Facebook E2E, and authorized GitHub workflow hardening.
+
+
+### Phase 13 — Staging integration (in PR, not deployed)
+
+- Auth and Firestore emulators now run together; tests exercise real Firebase SDK credentials across two users.
+- AI Gateway paid-provider quotas use an atomic per-UID Cloudflare Durable Object, and reject paid requests when no binding is configured.
+- Exact-origin CORS checks apply to POST requests; staging preflight checks Firebase/Web project alignment, emulator mode, extension ID, and DO migration.
+- Local unit/fixture testing and Cloudflare Wrangler dry-run verified; real Firebase/Cloudflare accounts still require the owner's setup and approval.
+- Outstanding production pilot: live tokens, browser verification, deployment costs, Environment reviewers and stable tagging.

@@ -54,3 +54,8 @@ Before stable production use, deploy Firestore rules to a development Firebase p
 - unauthenticated access denied
 - user A can access only `users/A/**`
 - user A cannot access `users/B/**`
+
+
+### v0.13 stability gate
+
+Staging needs live Firebase/Cloudflare controlled testing and release sign-off before any production tag. The release workflow's `RELEASE_APPROVED` must come from a manually configured GitHub Actions variable (not a hardcoded literal), and the `production` Environment must require reviewer approval. See `docs/STAGING_RUNBOOK.md`.
