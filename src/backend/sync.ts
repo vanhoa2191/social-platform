@@ -8,7 +8,7 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
-import type { ReviewSchedule } from '../runtime/types'
+import type { ReviewSchedule, ScheduleTombstone } from '../runtime/types'
 import {
   applyRemoteSchedule,
   clearScheduleTombstones,
@@ -79,6 +79,23 @@ function normalizeRemoteSchedule(id: string, value: Record<string, unknown>): Re
   }
 }
 
+export async function applyScheduleDeletionTombstoneTransaction(
+  db: NonNullable<ReturnType<typeof getFirestoreDb>>,
+  userUid: string,
+  tombstone: ScheduleTombstone,
+): Promise<'deleted' | 'cleared' | 'conflict'> {
+  return runTransaction(db, async (transaction) => {
+    const ref = doc(db, 'users', userUid, 'schedules', tombstone.id)
+    const snapshot = await transaction.get(ref)
+    if (!snapshot.exists()) return 'cleared'
+    const remote = normalizeRemoteSchedule(snapshot.id, snapshot.data())
+    const decision = resolveScheduleDeletions([tombstone], [remote])
+    if (decision.conflicts.length) return 'conflict'
+    transaction.delete(ref)
+    return 'deleted'
+  })
+}
+
 async function applyRemoteRow(row: RemoteScheduleRecord): Promise<void> {
   const applied = await applyRemoteSchedule({
     id: row.localScheduleId,
@@ -144,24 +161,28 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   const syncedAt = new Date().toISOString()
   const scheduleRows = schedulesResult.data.map((schedule) => toRemoteSchedule(schedule, browserInstanceId, syncedAt))
   const schedulesCollection = collection(db, 'users', user.uid, 'schedules')
-  const remoteSnapshot = await getDocs(schedulesCollection)
-  const allRemoteRows = remoteSnapshot.docs.map((item) => normalizeRemoteSchedule(item.id, item.data()))
-  const deletionDecision = resolveScheduleDeletions(tombstonesResult.data, allRemoteRows)
-  const tombstoneIds = new Set(tombstonesResult.data.map((item) => item.id))
-  const remoteRows = allRemoteRows.filter((item) => !tombstoneIds.has(item.localScheduleId))
-  const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
 
-  if (deletionDecision.idsToDelete.length) {
-    const deleteBatch = writeBatch(db)
-    for (const scheduleId of deletionDecision.idsToDelete) {
-      deleteBatch.delete(doc(db, 'users', user.uid, 'schedules', scheduleId))
+  const deletionConflicts: string[] = []
+  const tombstonesToClear: string[] = []
+  let schedulesDeleted = 0
+  for (const tombstone of tombstonesResult.data) {
+    const outcome = await applyScheduleDeletionTombstoneTransaction(db, user.uid, tombstone)
+    if (outcome === 'conflict') deletionConflicts.push(tombstone.id)
+    else {
+      tombstonesToClear.push(tombstone.id)
+      if (outcome === 'deleted') schedulesDeleted += 1
     }
-    await deleteBatch.commit()
   }
-  if (deletionDecision.idsToClear.length) {
-    const cleared = await clearScheduleTombstones(deletionDecision.idsToClear)
+  if (tombstonesToClear.length) {
+    const cleared = await clearScheduleTombstones(tombstonesToClear)
     if (!cleared.ok) throw new Error(cleared.error)
   }
+
+  const remoteSnapshot = await getDocs(schedulesCollection)
+  const allRemoteRows = remoteSnapshot.docs.map((item) => normalizeRemoteSchedule(item.id, item.data()))
+  const deletionConflictIds = new Set(deletionConflicts)
+  const remoteRows = allRemoteRows.filter((item) => !deletionConflictIds.has(item.localScheduleId))
+  const syncDecision = resolveScheduleSync(scheduleRows, remoteRows)
 
   for (const row of syncDecision.rowsToPull) await applyRemoteRow(row)
 
@@ -208,9 +229,9 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
     browserInstanceId,
     schedulesPushed: syncDecision.rowsToPush.length,
     schedulesPulled: syncDecision.rowsToPull.length,
-    schedulesDeleted: deletionDecision.idsToDelete.length,
-    deletionConflicts: deletionDecision.conflicts.length,
-    deletionConflictScheduleIds: deletionDecision.conflicts,
+    schedulesDeleted,
+    deletionConflicts: deletionConflicts.length,
+    deletionConflictScheduleIds: deletionConflicts,
     eventsPushed,
     remoteSchedules: remoteSnapshot.size,
     conflicts: syncDecision.conflicts.length,
