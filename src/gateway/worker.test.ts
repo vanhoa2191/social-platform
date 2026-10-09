@@ -80,4 +80,24 @@ describe('AI gateway worker', () => {
     expect((await worker.fetch(makeRequest(), env)).status).toBe(429)
   })
 
+  it('rejects absent or invalid Firebase tokens', async () => {
+    const env = { AI_PROVIDER: 'mock' as const, GATEWAY_AUTH_MODE: 'firebase' as const, FIREBASE_PROJECT_ID: 'demo-autotool' }
+    const missing = await worker.fetch(new Request('https://gateway.test/health'), env)
+    expect(missing.status).toBe(401)
+    const invalid = await worker.fetch(new Request('https://gateway.test/health', {
+      headers: { authorization: 'Bearer not-a-jwt' },
+    }), env)
+    expect(invalid.status).toBe(401)
+  })
+
+  it('restricts CORS origins', async () => {
+    const env = { AI_PROVIDER: 'mock' as const, ALLOWED_ORIGINS: 'https://dashboard.example' }
+    const bad = await worker.fetch(new Request('https://gateway.test/v1/comment', { method: 'OPTIONS', headers: { origin: 'https://other.example' } }), env)
+    expect(bad.status).toBe(403)
+    expect(bad.headers.get('access-control-allow-origin')).toBeNull()
+    const good = await worker.fetch(new Request('https://gateway.test/v1/comment', { method: 'OPTIONS', headers: { origin: 'https://dashboard.example' } }), env)
+    expect(good.status).toBe(204)
+    expect(good.headers.get('access-control-allow-origin')).toBe('https://dashboard.example')
+  })
+
 })

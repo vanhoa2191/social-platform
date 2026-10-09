@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoTool v2 - Social Platform",
   "short_name": "AutoTool",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Campaign-centric social workflow control plane with local browser runtime.",
   "minimum_chrome_version": "120",
   "action": {
@@ -13,9 +13,7 @@
     "type": "module"
   },
   "permissions": [
-    "activeTab",
     "alarms",
-    "scripting",
     "storage",
     "tabs"
   ],
@@ -37,9 +35,14 @@
   ],
   "options_page": "index.html",
   "optional_host_permissions": [
-    "https://*/*",
+    "https://*.workers.dev/*",
+    "https://*.firebaseapp.com/*",
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firestore.googleapis.com/*",
+    "https://www.googleapis.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
-  "version_name": "0.11.0-beta"
+  "version_name": "0.12.0-beta"
 }

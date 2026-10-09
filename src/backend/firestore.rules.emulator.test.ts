@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore'
 import { afterAll, beforeAll, describe, it } from 'vitest'
 
 let env: RulesTestEnvironment
@@ -43,32 +43,18 @@ describe('Firestore Security Rules', () => {
     const userA = env.authenticatedContext('user-a').firestore()
     const userB = env.authenticatedContext('user-b').firestore()
 
-    await assertSucceeds(setDoc(
-      doc(userA, 'users/user-a/campaigns/campaign-1'),
-      {
-        id: 'campaign-1',
-        name: 'Pilot campaign',
-        type: 'review_assist',
-        status: 'draft',
-        config: {},
-        revision: 1,
-        updatedAt: 1,
-      },
-    ))
-
-    await assertFails(getDoc(doc(userB, 'users/user-a/campaigns/campaign-1')))
-    await assertFails(setDoc(
-      doc(userB, 'users/user-a/campaigns/campaign-2'),
-      {
-        id: 'campaign-2',
-        name: 'Not allowed',
-        type: 'review_assist',
-        status: 'draft',
-        config: {},
-        revision: 1,
-        updatedAt: 1,
-      },
-    ))
+    const data = {
+      id: 'profile-1',
+      name: 'Pilot AI profile',
+      persona: 'Concise',
+      promptVersion: 'comment-v2',
+      config: { strategy: 'QUESTION', notes: '' },
+      revision: 1,
+      updatedAt: 1,
+    }
+    await assertSucceeds(setDoc(doc(userA, 'users/user-a/aiProfiles/profile-1'), data))
+    await assertFails(getDoc(doc(userB, 'users/user-a/aiProfiles/profile-1')))
+    await assertFails(setDoc(doc(userB, 'users/user-a/aiProfiles/profile-1'), { ...data, revision: 2 }))
   })
 
   it('denies unauthenticated access', async () => {
@@ -153,11 +139,74 @@ describe('Firestore Security Rules', () => {
     ))
   })
 
-  it('rejects unknown cloud collections by default', async () => {
+  it('rejects deprecated campaigns and unknown cloud collections by default', async () => {
     const db = env.authenticatedContext('user-a').firestore()
+    await assertFails(setDoc(doc(db, 'users/user-a/campaigns/deprecated-1'), { id: 'deprecated-1', name: 'Unsafe legacy campaign' }))
     await assertFails(setDoc(
       doc(db, 'users/user-a/privateSecrets/secret-1'),
       { value: 'should never be accepted' },
     ))
   })
+  it('enforces schedule ranges and monotonic revisions', async () => {
+    const db = env.authenticatedContext('user-a').firestore()
+    const ref = doc(db, 'users/user-a/schedules/schedule-ranges')
+    const valid = {
+      id: 'schedule-ranges', localScheduleId: 'schedule-ranges',
+      browserInstanceId: 'device-1', name: 'Review',
+      enabled: true, intervalMinutes: 60, maxPosts: 5,
+      startHour: 8, endHour: 12, accountContextKey: null,
+      accountLabel: null, revision: 10, definitionUpdatedAt: 10,
+      lastSyncedAt: '2026-10-09T00:00:00.000Z',
+    }
+
+    await assertSucceeds(setDoc(ref, valid))
+    await assertFails(setDoc(ref, { ...valid, revision: 11, maxPosts: 21 }))
+    await assertFails(setDoc(ref, { ...valid, revision: 11, intervalMinutes: 14 }))
+    await assertFails(setDoc(ref, { ...valid, revision: 11, startHour: 24 }))
+    await assertFails(setDoc(ref, { ...valid, revision: 11, endHour: -1 }))
+    await assertFails(setDoc(ref, { ...valid, revision: 11, name: 'x'.repeat(201) }))
+    await assertFails(setDoc(ref, { ...valid, revision: 10, name: 'Stale overwrite' }))
+    await assertFails(setDoc(ref, { ...valid, revision: 9, name: 'Rollback' }))
+    await assertSucceeds(setDoc(ref, { ...valid, revision: 11, name: 'New revision' }))
+  })
+
+  it('enforces owner-only AI Profile CRUD with valid prompt versions and increasing revisions', async () => {
+    const owner = env.authenticatedContext('user-a').firestore()
+    const other = env.authenticatedContext('user-b').firestore()
+    const ref = doc(owner, 'users/user-a/aiProfiles/profile-security')
+    const payload = {
+      id: 'profile-security', name: 'Expert', persona: 'Helpful',
+      promptVersion: 'comment-v2', config: { strategy: 'INSIGHT', notes: '' },
+      revision: 1, updatedAt: 1,
+    }
+    await assertSucceeds(setDoc(ref, payload))
+    await assertFails(getDoc(doc(other, 'users/user-a/aiProfiles/profile-security')))
+    await assertFails(setDoc(doc(other, 'users/user-a/aiProfiles/profile-security'), { ...payload, revision: 2 }))
+    await assertFails(setDoc(ref, { ...payload, revision: 1, name: 'Stale' }))
+    await assertFails(setDoc(ref, { ...payload, revision: 2, promptVersion: 'not-reviewed-v3' }))
+    await assertFails(setDoc(ref, { ...payload, revision: 2, config: { secretToken: 'should-not-store' } }))
+    await assertSucceeds(setDoc(ref, { ...payload, revision: 2, name: 'Edited expert' }))
+    await assertFails(deleteDoc(doc(other, 'users/user-a/aiProfiles/profile-security')))
+    await assertSucceeds(deleteDoc(ref))
+  })
+
+  it('enforces owner-only Content Library CRUD with kind and size validation', async () => {
+    const owner = env.authenticatedContext('user-a').firestore()
+    const other = env.authenticatedContext('user-b').firestore()
+    const ref = doc(owner, 'users/user-a/contentItems/content-security')
+    const payload = {
+      id: 'content-security', title: 'Prompt', kind: 'prompt',
+      body: 'Draft a useful answer only.', tags: ['review'], revision: 1, updatedAt: 1,
+    }
+    await assertSucceeds(setDoc(ref, payload))
+    await assertFails(getDoc(doc(other, 'users/user-a/contentItems/content-security')))
+    await assertFails(setDoc(ref, { ...payload, revision: 2, kind: 'autopost' }))
+    await assertFails(setDoc(ref, { ...payload, revision: 2, tags: Array.from({ length: 21 }, () => 'x') }))
+    await assertFails(setDoc(ref, { ...payload, revision: 2, body: 'x'.repeat(10001) }))
+    await assertFails(setDoc(ref, { ...payload, revision: 1, title: 'Stale' }))
+    await assertSucceeds(setDoc(ref, { ...payload, revision: 2, title: 'Revised prompt' }))
+    await assertFails(deleteDoc(doc(other, 'users/user-a/contentItems/content-security')))
+    await assertSucceeds(deleteDoc(ref))
+  })
+
 })

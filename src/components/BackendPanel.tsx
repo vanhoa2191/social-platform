@@ -228,6 +228,11 @@ export default function BackendPanel() {
         </div>
       )}
 
+      <div className="runtime-note">
+        Đồng bộ Firebase lần đầu sẽ gắn dữ liệu workflow local với tài khoản đang đăng nhập.
+        Nếu cần sử dụng Firebase account khác, hãy dùng Chrome profile riêng; ứng dụng không tự chuyển dữ liệu giữa các tài khoản.
+      </div>
+
       <div className="backend-architecture">
         <div><strong>Local runtime</strong><span>Queue, locks, review candidates, session limits.</span></div>
         <div><strong>Firebase Auth</strong><span>{backendConfig?.useEmulators ? 'Auth Emulator' : 'Email/password qua firebase/auth/web-extension trên MV3.'}</span></div>

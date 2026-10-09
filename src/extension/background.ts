@@ -1,5 +1,5 @@
 import { localMockAiProvider, type AiDraftProvider } from '../automation/aiProvider'
-import { createGatewayAiProvider, normalizeGatewayUrl } from '../ai/gatewayProvider'
+import { createGatewayAiProvider, isSupportedGatewayUrl, normalizeGatewayUrl } from '../ai/gatewayProvider'
 import type { AiGatewaySettings, AiHealthResponse } from '../ai/contracts'
 import type { CandidateState, ReviewCandidate } from '../automation/model'
 import { getCandidate, listCandidates, patchCandidate, upsertCandidate, clearCandidates } from '../automation/reviewStore'
@@ -17,6 +17,8 @@ import type { AdapterDiagnostic, PlatformContext } from '../platform/types'
 import { addScheduleTombstone, clearScheduleTombstones, ensureDefaultSettings, getScheduleTombstones, getSafetyState, setEmergencyStop, getSettings, getSessionActionCount, incrementSessionActionCount, getAiGatewaySettings, saveAiGatewaySettings, getAiGatewayToken, setAiGatewayToken, getPilotSettings, savePilotSettings } from './storage'
 import { getRuntimeDbInfo } from './runtimeDb'
 import { effectiveActionLimit, effectivePostLimit, releaseChannelFromVersionName } from './pilot'
+import { cleanupRuntimeData } from '../runtime/retention'
+import { getFirebaseAuth } from '../backend/client'
 import type {
   BackgroundRequest,
   ContentRequest,
@@ -29,6 +31,8 @@ import type {
 } from './types'
 
 const QUEUE_ALARM = 'autotool.queue.tick'
+const RETENTION_KEY = 'autotool.retention.lastRun'
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000
 const QUEUE_LEASE_MS = 2 * 60_000
 const QUEUE_HEARTBEAT_MS = 30_000
 const WORKER_ID = `service-worker:${chrome.runtime.id}`
@@ -81,10 +85,19 @@ async function sendToContent<T>(tabId: number, request: ContentRequest): Promise
   }
 }
 
+async function getGatewayBearer(settings: AiGatewaySettings): Promise<string | undefined> {
+  if (settings.authMode === 'token') return getAiGatewayToken()
+  const auth = await getFirebaseAuth()
+  if (!auth) throw new Error('Firebase chưa được cấu hình cho AI Gateway auth.')
+  await auth.authStateReady()
+  if (!auth.currentUser) throw new Error('Hãy đăng nhập Firebase trước khi dùng AI Gateway.')
+  return auth.currentUser.getIdToken()
+}
+
 async function getAiProvider(): Promise<AiDraftProvider> {
   const settings = await getAiGatewaySettings()
   if (settings.mode === 'local') return localMockAiProvider
-  return createGatewayAiProvider(settings, await getAiGatewayToken())
+  return createGatewayAiProvider(settings, await getGatewayBearer(settings))
 }
 
 async function getAiSettingsView(): Promise<AiSettingsView> {
@@ -95,7 +108,7 @@ async function getAiSettingsView(): Promise<AiSettingsView> {
 async function testGatewayConnection(): Promise<AiHealthResponse> {
   const settings = await getAiGatewaySettings()
   if (settings.mode !== 'gateway') throw new Error('AI mode hiện tại đang là local.')
-  const token = await getAiGatewayToken()
+  const token = await getGatewayBearer(settings)
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), settings.timeoutMs)
   try {
@@ -363,7 +376,19 @@ function startQueueLeaseHeartbeat(job: QueueJob): () => void {
   return () => globalThis.clearInterval(timer)
 }
 
+async function runRetentionIfDue(now = Date.now()): Promise<void> {
+  const stored = await chrome.storage.local.get(RETENTION_KEY)
+  const lastRun = Number(stored[RETENTION_KEY] ?? 0)
+  if (now - lastRun < RETENTION_INTERVAL_MS) return
+  const summary = await cleanupRuntimeData(now)
+  await chrome.storage.local.set({ [RETENTION_KEY]: now })
+  if (summary.jobsDeleted || summary.candidatesDeleted || summary.eventsDeleted || summary.locksDeleted) {
+    await logRuntimeEvent('INFO', 'SYSTEM', 'Đã dọn dữ liệu runtime cũ.', JSON.stringify(summary))
+  }
+}
+
 async function processQueueTick(): Promise<void> {
+  await runRetentionIfDue()
   const safety = await getSafetyState()
   if (safety.emergencyStop) return
 
@@ -446,11 +471,13 @@ async function processQueueTick(): Promise<void> {
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureDefaultSettings()
+  void runRetentionIfDue()
   void chrome.alarms.create(QUEUE_ALARM, { periodInMinutes: 1 })
   void logRuntimeEvent('INFO', 'SYSTEM', 'AutoTool runtime đã được cài đặt/cập nhật.')
 })
 
 chrome.runtime.onStartup.addListener(() => {
+  void runRetentionIfDue()
   void chrome.alarms.create(QUEUE_ALARM, { periodInMinutes: 1 })
 })
 
@@ -563,13 +590,18 @@ chrome.runtime.onMessage.addListener((message: BackgroundRequest, _sender, sendR
         return
       }
       if (message.type === 'AI_SETTINGS_SET') {
+        const normalizedGatewayUrl = normalizeGatewayUrl(message.settings.gatewayUrl)
+        if (message.settings.mode === 'gateway' && !isSupportedGatewayUrl(normalizedGatewayUrl)) {
+          throw new Error('Gateway production phải dùng HTTPS *.workers.dev; localhost chỉ dành cho dev.')
+        }
         const settings: AiGatewaySettings = {
           ...message.settings,
-          gatewayUrl: normalizeGatewayUrl(message.settings.gatewayUrl),
+          gatewayUrl: normalizedGatewayUrl,
           timeoutMs: Math.max(3_000, Math.min(60_000, Number(message.settings.timeoutMs) || 20_000)),
         }
         await saveAiGatewaySettings(settings)
-        if (message.token !== undefined) await setAiGatewayToken(message.token)
+        if (settings.authMode === 'firebase') await setAiGatewayToken(undefined)
+        else if (message.token !== undefined) await setAiGatewayToken(message.token)
         const response: ExtensionResponse<AiSettingsView> = { ok: true, data: await getAiSettingsView() }
         sendResponse(response)
         return

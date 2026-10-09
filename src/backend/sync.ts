@@ -19,7 +19,7 @@ import {
   setScheduleRevision,
 } from '../extension/client'
 import { getFirebaseAuth, getFirestoreDb } from './client'
-import { getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
+import { claimLocalDataOwner, getEventWatermark, getOrCreateDeviceKey, setEventWatermark } from './storage'
 import { nextDefinitionRevision, resolveScheduleSync } from './syncPolicy'
 import { eventCursor, telemetryStartCursor, toTelemetryEventRecord } from './telemetry'
 import type { BrowserInstanceRecord, RemoteScheduleRecord, SyncSummary } from './types'
@@ -129,6 +129,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   }
 
   const { user } = await requireSession()
+  await claimLocalDataOwner(user.uid)
   const browserInstanceId = await registerBrowserInstance(extensionVersion)
   const [schedulesResult, tombstonesResult] = await Promise.all([
     listSchedules(),
@@ -176,7 +177,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
   let eventsPushed = 0
 
   if (telemetryEnabled && pilotResult.ok) {
-    const watermark = await getEventWatermark()
+    const watermark = await getEventWatermark(user.uid)
     const startCursor = telemetryStartCursor(watermark, pilotResult.data.telemetryOptInAt)
     const eventResult = await listRuntimeEventsAfter(startCursor, 500)
     if (!eventResult.ok) throw new Error(eventResult.error)
@@ -191,7 +192,7 @@ export async function syncRuntimeData(extensionVersion: string): Promise<SyncSum
         )
       }
       await batch.commit()
-      await setEventWatermark(eventCursor(unsyncedEvents[unsyncedEvents.length - 1]))
+      await setEventWatermark(user.uid, eventCursor(unsyncedEvents[unsyncedEvents.length - 1]))
       eventsPushed = unsyncedEvents.length
     }
   }
@@ -255,6 +256,7 @@ export async function signOutBackend(): Promise<void> {
 
 export async function resolveScheduleConflictKeepLocal(scheduleId: string, extensionVersion: string): Promise<SyncSummary> {
   const { db, user } = await requireSession()
+  await claimLocalDataOwner(user.uid)
   const schedulesResult = await listSchedules()
   if (!schedulesResult.ok) throw new Error(schedulesResult.error)
   const local = schedulesResult.data.find((item) => item.id === scheduleId)
@@ -285,6 +287,7 @@ export async function resolveScheduleConflictKeepLocal(scheduleId: string, exten
 
 export async function resolveScheduleConflictUseCloud(scheduleId: string, extensionVersion: string): Promise<SyncSummary> {
   const { db, user } = await requireSession()
+  await claimLocalDataOwner(user.uid)
   const snapshot = await getDoc(doc(db, 'users', user.uid, 'schedules', scheduleId))
   if (!snapshot.exists()) throw new Error('Không tìm thấy lịch cloud.')
   await applyRemoteRow(normalizeRemoteSchedule(snapshot.id, snapshot.data()))

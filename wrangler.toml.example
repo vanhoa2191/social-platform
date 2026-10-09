@@ -3,6 +3,9 @@ main = "dist-gateway/worker.js"
 compatibility_date = "2026-10-01"
 
 [vars]
+GATEWAY_AUTH_MODE = "firebase"
+FIREBASE_PROJECT_ID = "your-firebase-project-id"
+ALLOWED_ORIGINS = "http://localhost:5173"
 AI_PROVIDER = "mock"
 AI_MODEL = "mock-v1"
 AI_INPUT_USD_PER_M = "0"
@@ -15,7 +18,7 @@ MAX_BODY_BYTES = "16384"
 # wrangler secret put GATEWAY_TOKEN
 # wrangler secret put AI_API_KEY
 #
-# GATEWAY_TOKEN is required whenever AI_PROVIDER is not "mock".
+# Production: Firebase ID token. GATEWAY_TOKEN is a dev fallback, not recommended for production.
 #
 # Provider options:
 # mock | openai | deepseek | anthropic | gemini

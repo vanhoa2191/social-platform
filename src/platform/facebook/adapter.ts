@@ -28,12 +28,26 @@ function guessAuthor(article: Element): string | undefined {
     .find((value) => value.length >= 2 && value.length <= 80)
 }
 
+function canonicalPermalink(value?: string): string | undefined {
+  if (!value) return undefined
+  try {
+    const url = new URL(value, window.location.href)
+    if (!isSupportedFacebookUrl(url.href)) return undefined
+    const kept = new URL(url.origin + url.pathname)
+    for (const key of ['story_fbid', 'id', 'fbid', 'set']) {
+      const item = url.searchParams.get(key)
+      if (item) kept.searchParams.set(key, item)
+    }
+    return kept.href
+  } catch { return undefined }
+}
+
 function guessPermalink(article: Element): string | undefined {
-  return Array.from(article.querySelectorAll<HTMLAnchorElement>('a[href]'))
+  return canonicalPermalink(Array.from(article.querySelectorAll<HTMLAnchorElement>('a[href]'))
     .find((anchor) => {
       const href = anchor.href
       return href.includes('/posts/') || href.includes('/permalink/') || href.includes('/reel/') || href.includes('story_fbid=')
-    })?.href
+    })?.href)
 }
 
 function canonicalPostKey(permalink?: string): string | undefined {
@@ -170,6 +184,41 @@ function findPostElement(postId: string): HTMLElement | undefined {
   return matches[0]
 }
 
+function findLocalComposer(article: HTMLElement): HTMLElement | undefined {
+  const candidates = Array.from(article.querySelectorAll<HTMLElement>(facebookSelectors.composer.join(',')))
+    .filter((node) => node.getAttribute('aria-hidden') !== 'true')
+  if (candidates.length > 1) {
+    throw new Error('Có nhiều ô bình luận trong cùng bài viết; đã dừng để tránh nhập nhầm.')
+  }
+  return candidates[0]
+}
+
+async function waitForComposer(article: HTMLElement, timeoutMs = 3500): Promise<HTMLElement | undefined> {
+  const initial = findLocalComposer(article)
+  if (initial) return initial
+
+  return new Promise((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      try {
+        const candidate = findLocalComposer(article)
+        if (!candidate) return
+        observer.disconnect()
+        window.clearTimeout(timer)
+        resolve(candidate)
+      } catch (error) {
+        observer.disconnect()
+        window.clearTimeout(timer)
+        reject(error)
+      }
+    })
+    const timer = window.setTimeout(() => {
+      observer.disconnect()
+      resolve(undefined)
+    }, timeoutMs)
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true })
+  })
+}
+
 async function prepareComment(postId: string, comment: string): Promise<PrepareCommentResult> {
   const article = findPostElement(postId)
   if (!article) throw new Error('Không tìm thấy bài viết trong DOM hiện tại. Hãy cuộn lại bài rồi thử lại.')
@@ -179,19 +228,10 @@ async function prepareComment(postId: string, comment: string): Promise<PrepareC
     .find(isCommentControl) as HTMLElement | undefined
   commentControl?.click()
 
-  await new Promise((resolve) => window.setTimeout(resolve, 250))
-
-  const composerSelector = facebookSelectors.composer.join(',')
-  const localComposers = Array.from(article.querySelectorAll<HTMLElement>(composerSelector))
-    .filter((node) => node.getAttribute('aria-hidden') !== 'true')
-  if (localComposers.length !== 1) {
-    throw new Error(
-      localComposers.length === 0
-        ? 'Không xác định được ô bình luận thuộc đúng bài viết; đã dừng để tránh nhập nhầm.'
-        : 'Có nhiều ô bình luận trong cùng bài viết; đã dừng để tránh nhập nhầm.',
-    )
+  const composer = await waitForComposer(article)
+  if (!composer) {
+    throw new Error('Không xác định được ô bình luận thuộc đúng bài viết; đã dừng để tránh nhập nhầm.')
   }
-  const composer = localComposers[0]
 
   composer.focus()
   composer.textContent = comment
