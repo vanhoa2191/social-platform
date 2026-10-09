@@ -25,3 +25,16 @@ MAX_BODY_BYTES = "16384"
 #
 # Optional:
 # AI_BASE_URL = "https://..."
+
+# Per-UID Durable Object quota. Required whenever AI_PROVIDER is not "mock".
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "UserRateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserRateLimiter"]
+
+# ALLOWED_ORIGINS must include the exact installed Chrome extension origin, e.g.
+# ALLOWED_ORIGINS = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+# Do not use "*" or arbitrary web origins.

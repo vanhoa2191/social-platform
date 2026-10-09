@@ -14,6 +14,7 @@ interface Env {
   AI_INPUT_USD_PER_M?: string
   AI_OUTPUT_USD_PER_M?: string
   RATE_LIMIT_PER_MINUTE?: string
+  RATE_LIMITER?: QuotaNamespace
   PROVIDER_TIMEOUT_MS?: string
   MAX_BODY_BYTES?: string
 }
@@ -24,7 +25,54 @@ type DraftShape = {
   confidence: number
 }
 
-const rateBuckets = new Map<string, { startedAt: number; count: number }>()
+
+interface QuotaNamespace {
+  idFromName(name: string): unknown
+  get(id: never): { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }
+}
+interface QuotaStore {
+  transaction<T>(callback: (tx: { get<TValue>(key: string): Promise<TValue | undefined>; put(key: string, value: unknown): Promise<void> }) => Promise<T>): Promise<T>
+}
+interface QuotaState {
+  storage: QuotaStore
+}
+interface QuotaCounter { minute: number; count: number }
+
+export class UserRateLimiter {
+  private readonly storage: QuotaStore
+
+  constructor(state: QuotaState) {
+    this.storage = state.storage
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== 'POST' || new URL(request.url).pathname !== '/consume') {
+      return new Response('Not found', { status: 404 })
+    }
+    let limit: number
+    try {
+      const raw: unknown = await request.json()
+      const value = (raw as Record<string, unknown> | null)?.limit
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 300) throw new Error('Invalid limit')
+      limit = value
+    } catch {
+      return new Response('Invalid quota request', { status: 400 })
+    }
+
+    const minute = Math.floor(Date.now() / 60_000)
+    const allowed = await this.storage.transaction(async (tx) => {
+      const current = await tx.get<QuotaCounter>('counter')
+      const count = current?.minute === minute ? current.count : 0
+      if (count >= limit) return false
+      await tx.put('counter', { minute, count: count + 1 } satisfies QuotaCounter)
+      return true
+    })
+    return new Response(null, { status: allowed ? 204 : 429 })
+  }
+}
+
+const devRateBuckets = new Map<string, { startedAt: number; count: number }>()
+
 
 function numberSetting(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number(value)
@@ -65,12 +113,34 @@ async function requireAuth(request: Request, env: Env): Promise<{ identity: stri
   if (token !== env.GATEWAY_TOKEN) return { identity: '', error: json(request, env, { error: 'Unauthorized' }, 401) }
   return { identity: 'shared-token' }
 }
-function rateLimit(request: Request, env: Env, identity: string): Response | undefined {
+async function rateLimit(request: Request, env: Env, identity: string): Promise<Response | undefined> {
   const max = numberSetting(env.RATE_LIMIT_PER_MINUTE, 30, 1, 300)
+  if (env.RATE_LIMITER) {
+    try {
+      const id = env.RATE_LIMITER.idFromName(identity)
+      const response = await env.RATE_LIMITER.get(id as never).fetch(
+        'https://rate-limit.internal/consume',
+        { method: 'POST', body: JSON.stringify({ limit: max }) },
+      )
+      if (response.status === 204) return undefined
+      if (response.status === 429) return json(request, env, { error: 'Rate limit exceeded' }, 429)
+      return json(request, env, { error: 'Quota service unavailable' }, 503)
+    } catch {
+      return json(request, env, { error: 'Quota service unavailable' }, 503)
+    }
+  }
+
+  // Mock-only local fallback. Real AI providers require an atomic Durable Object binding.
+  if ((env.AI_PROVIDER || 'mock') !== 'mock') {
+    return json(request, env, { error: 'Production quota binding missing' }, 503)
+  }
   const now = Date.now()
   const key = identity + ':' + (request.headers.get('cf-connecting-ip') ?? 'unknown')
-  const bucket = rateBuckets.get(key)
-  if (!bucket || now - bucket.startedAt >= 60_000) { rateBuckets.set(key, { startedAt: now, count: 1 }); return undefined }
+  const bucket = devRateBuckets.get(key)
+  if (!bucket || now - bucket.startedAt >= 60_000) {
+    devRateBuckets.set(key, { startedAt: now, count: 1 })
+    return undefined
+  }
   if (bucket.count >= max) return json(request, env, { error: 'Rate limit exceeded' }, 429)
   bucket.count += 1
   return undefined
@@ -242,18 +312,25 @@ async function generate(env: Env, req: AiGatewayRequest): Promise<AiGatewayRespo
 }
 
 function validateRequest(value: unknown): AiGatewayRequest {
-  if (!value || typeof value !== 'object') throw new Error('Invalid request')
-  const root = value as Record<string, any>
-  const post = root.post
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid request')
+  const root = value as Record<string, unknown>
+  const rawPost = root.post
   const promptVersion = root.promptVersion as PromptVersion
-  if (!post || typeof post.text !== 'string' || typeof post.id !== 'string') throw new Error('Invalid post')
-  post.text = post.text.trim()
-  if (post.text.length < 2 || post.text.length > 5000 || post.id.length > 200) throw new Error('Invalid post')
-  if (typeof post.author === 'string') post.author = post.author.trim().slice(0, 200)
-  delete post.sourceUrl
-  delete post.permalink
+  if (!rawPost || typeof rawPost !== 'object' || Array.isArray(rawPost)) throw new Error('Invalid post')
+  const post = rawPost as Record<string, unknown>
+  if (typeof post.id !== 'string' || !post.id.trim() || post.id.length > 200) throw new Error('Invalid post ID')
+  if (typeof post.text !== 'string') throw new Error('Invalid post text')
+  const text = post.text.trim()
+  if (text.length < 2 || text.length > 5000) throw new Error('Invalid post text')
   if (promptVersion !== 'comment-v1' && promptVersion !== 'comment-v2') throw new Error('Invalid promptVersion')
-  return { post, promptVersion }
+  return {
+    post: {
+      id: post.id,
+      text,
+      ...(typeof post.author === 'string' ? { author: post.author.trim().slice(0, 200) } : {}),
+    },
+    promptVersion,
+  }
 }
 
 export default {
@@ -263,22 +340,27 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) })
     }
     const url = new URL(request.url)
+    if (request.headers.get('origin') && !corsHeaders(request, env)['access-control-allow-origin']) {
+      return json(request, env, { error: 'Origin not allowed' }, 403)
+    }
     if (url.pathname === '/health' && request.method === 'GET') {
       const auth = await requireAuth(request, env)
       if (auth.error) return auth.error
-      return json(request, env, { ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.12.0' })
+      return json(request, env, { ok: true, provider: env.AI_PROVIDER || 'mock', model: env.AI_MODEL || 'mock-v1', version: '0.13.0' })
     }
     if (url.pathname === '/v1/comment' && request.method === 'POST') {
       const auth = await requireAuth(request, env)
       if (auth.error) return auth.error
-      const limited = rateLimit(request, env, auth.identity)
+      const limited = await rateLimit(request, env, auth.identity)
       if (limited) return limited
       try {
         const body = validateRequest(await readJsonBody(request, env))
         return json(request, env, await generate(env, body))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Gateway error'
-        return json(request, env, { error: message }, message === 'Request body too large' ? 413 : message === 'AI provider timed out' ? 504 : 400)
+        const isUpstreamError = /^(openai|deepseek|anthropic|gemini) HTTP /i.test(message)
+        const publicMessage = isUpstreamError ? 'AI provider request failed; check server logs' : message
+        return json(request, env, { error: publicMessage }, message === 'Request body too large' ? 413 : message === 'AI provider timed out' ? 504 : isUpstreamError ? 502 : 400)
       }
     }
     return json(request, env, { error: 'Not found' }, 404)

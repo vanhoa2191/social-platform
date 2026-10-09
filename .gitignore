@@ -24,3 +24,11 @@ release
 *.njsproj
 *.sln
 *.sw?
+
+# Local Firebase/Cloudflare staging configuration (never commit)
+.env
+.env.*
+!.env.example
+wrangler.toml
+wrangler.*.toml
+.wrangler/
